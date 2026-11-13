@@ -605,8 +605,18 @@ def build_settings_page(win: MainWindow) -> QWidget:
     about_desc.setWordWrap(True)
     about_card.body_layout.addWidget(about_desc)
 
-    credits_lbl = QLabel("Thiết kế giao diện sử dụng bộ phông chữ Inter (SIL OFL) và biểu tượng Lucide (MIT License).")
+    win.about_author_lbl = QLabel(
+        "Tác giả: @ybao04 · Giấy phép mã nguồn mở: GNU GPL v3.0 (Open Source)"
+    )
+    win.about_author_lbl.setWordWrap(True)
+    about_card.body_layout.addWidget(win.about_author_lbl)
+
+    credits_lbl = QLabel(
+        "Thành phần mã nguồn mở: PyQt6 (GPL-3.0), yt-dlp (Unlicense), psutil (BSD-3-Clause), "
+        "phông chữ Inter (SIL OFL 1.1) và biểu tượng Lucide (ISC/MIT License)."
+    )
     credits_lbl.setObjectName("mutedLabel")
+    credits_lbl.setWordWrap(True)
     about_card.body_layout.addWidget(credits_lbl)
 
     about_btns = QHBoxLayout()

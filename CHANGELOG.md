@@ -4,6 +4,14 @@ Toàn bộ các thay đổi quan trọng của dự án **YouTube Desktop Downlo
 
 ---
 
+## [3.2.2] - 2026-11-13
+
+### Đã thêm (Added)
+- **Thông tin tác giả & Giấy phép mã nguồn mở trong Tab Giới thiệu**:
+  - Hiển thị rõ tác giả `@ybao04` và giấy phép mã nguồn mở `GNU GPL v3.0` cùng danh sách giấy phép các thành phần lõi (`PyQt6`, `yt-dlp`, `psutil`, phông chữ `Inter`, biểu tượng `Lucide`) ngay tại **Cài đặt → Giới thiệu**.
+
+---
+
 ## [3.2.1] - 2026-11-13
 
 ### Đã tối ưu (Optimized)

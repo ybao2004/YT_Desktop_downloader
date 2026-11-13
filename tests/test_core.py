@@ -1289,14 +1289,14 @@ class UIRedesignTests(unittest.TestCase):
 
         # 1. Version consistency across package, manifest, and PE resource
         self.assertEqual(ytd_app.__version__, APP_VERSION)
-        self.assertEqual(APP_VERSION, "3.2.1")
+        self.assertEqual(APP_VERSION, "3.2.2")
 
         root = Path(__file__).resolve().parent.parent
         version_info_path = root / "version_info.txt"
         if version_info_path.is_file():
             txt = version_info_path.read_text(encoding="utf-8")
-            self.assertIn("(3, 2, 1, 0)", txt)
-            self.assertIn("'3.2.1.0'", txt)
+            self.assertIn("(3, 2, 2, 0)", txt)
+            self.assertIn("'3.2.2.0'", txt)
 
         manifest_path = root / "dist" / "version.json"
         if manifest_path.is_file():
@@ -1382,12 +1382,12 @@ class UIRedesignTests(unittest.TestCase):
             self.assertEqual(sp.status_label.text(), "Hoàn tất!")
             # Check version displayed in sub_label
             labels = sp.findChildren(QLabel)
-            sub_texts = [lbl.text() for lbl in labels if "v3.2.1" in lbl.text()]
-            self.assertTrue(len(sub_texts) > 0, f"Expected v3.2.1 in splash labels, found: {[l.text() for l in labels]}")
+            sub_texts = [lbl.text() for lbl in labels if "v3.2.2" in lbl.text()]
+            self.assertTrue(len(sub_texts) > 0, f"Expected v3.2.2 in splash labels, found: {[l.text() for l in labels]}")
         finally:
             sp.close()
 
-        # 6. Test Update tab UI fixes: & escaping, progress bar text hidden, no manifest_edit, startup silent update & notification dots
+        # 6. Test Update tab UI fixes: & escaping, progress bar text hidden, no manifest_edit, about author/license, startup silent update & notification dots
         from ytd_app.ui import MainWindow
         from ytd_app.ui.widgets import tool_button
         from ytd_app.updater import UpdateInfo
@@ -1400,6 +1400,8 @@ class UIRedesignTests(unittest.TestCase):
                     win = MainWindow()
                     try:
                         self.assertFalse(hasattr(win, "manifest_edit"))
+                        self.assertIn("@ybao04", win.about_author_lbl.text())
+                        self.assertIn("GPL", win.about_author_lbl.text())
                         self.assertFalse(win.upd_pbar.isTextVisible())
                         self.assertTrue(win.auto_update_check_tab.isChecked())
                         # Silent update check always uses default GitHub repo even if legacy setting exists
