@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -30,8 +29,12 @@ class Job:
     subtitles: bool = False
     sub_langs: str = "vi,en"
     embed_metadata: bool = True
+    mute_audio: bool = False          # True: save video without audio track (muted)
     thumbnail_url: str = ""
     detected_codec: str = ""           # actual output codec (e.g. H.264, H.265, VP9, AV1)
+    detected_resolution: str = ""      # actual resolution (e.g. 1920x1080 or 1080p)
+    detected_fps: str = ""             # actual frame rate (e.g. 60fps, 30fps)
+    detected_bitrate: str = ""         # actual bitrate (e.g. 2450 kbps, 192 kbps)
     status: str = "queued"             # queued/downloading/paused/processing/converting/done/error/cancelled
     progress: float = 0.0
     speed: str = ""
@@ -65,7 +68,7 @@ from .version import default_download_dir
 class Settings:
     download_dir: str = field(default_factory=lambda: str(default_download_dir()))
     max_concurrent: int = 2
-    fragment_connections: int = 1
+    fragment_connections: int = 4
     default_mode: str = "video"
     default_video_ext: str = "mp4"
     default_audio_ext: str = "mp3"
@@ -77,6 +80,7 @@ class Settings:
     last_playlist: bool = False
     keep_history: bool = True
     cookie_file: str = ""
+    cookies_from_browser: str = "auto"  # auto | "" | firefox | edge | brave | chrome | opera | vivaldi
     quick_download: bool = True
     notify_on_complete: bool = True
     embed_metadata: bool = True
@@ -84,7 +88,7 @@ class Settings:
     subtitle_langs: str = "vi,en"
     portable_mode: bool = True
     update_manifest_url: str = ""
-    auto_check_updates: bool = False
+    auto_check_updates: bool = True
     theme_mode: str = "system"         # system | light | dark
     append_id_suffix: bool = False     # False: original title (default), True: [id] suffix
 

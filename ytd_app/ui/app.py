@@ -28,7 +28,7 @@ def load_bundled_fonts() -> str:
 
 
 def setup_app(app: QApplication, theme_pref: str = "system") -> None:
-    """Configure Fusion style, load Inter font, and apply initial color theme."""
+    """Configure Fusion style, load Inter font, apply initial color theme, and set window icon."""
     try:
         app.setStyle("Fusion")
     except Exception:
@@ -38,4 +38,10 @@ def setup_app(app: QApplication, theme_pref: str = "system") -> None:
     default_font.setPixelSize(13)
     default_font.setWeight(QFont.Weight.Normal)
     app.setFont(default_font)
+
+    from .splash import get_app_icon
+    icon = get_app_icon()
+    if not icon.isNull():
+        app.setWindowIcon(icon)
+
     theme_manager().apply(theme_pref)

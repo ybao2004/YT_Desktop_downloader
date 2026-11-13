@@ -206,15 +206,29 @@ def stage_portable_update(package_path: Path) -> Path:
         if is_frozen()
         else f'start "" "{sys.executable}" "{target_root / "main.py"}"'
     )
+    exe_name = target_exe.name
     bat_content = (
         "@echo off\r\n"
         "chcp 65001 >nul\r\n"
+        "set \"PYINSTALLER_RESET_ENVIRONMENT=1\"\r\n"
+        "set \"_MEIPASS=\"\r\n"
+        "set \"_MEIPASS2=\"\r\n"
+        "set \"_PYI_ARCHIVE_FILE=\"\r\n"
+        "set \"_PYI_APPLICATION_HOME_DIR=\"\r\n"
+        "set \"_PYI_PARENT_PROCESS_LEVEL=\"\r\n"
+        "set \"_PYI_SPLASH_IPC=\"\r\n"
+        "set \"PYTHONHOME=\"\r\n"
+        "set \"PYTHONPATH=\"\r\n"
         "echo Đang áp dụng bản cập nhật mới...\r\n"
-        "for /L %%i in (1,1,15) do (\r\n"
+        "for /L %%i in (1,1,30) do (\r\n"
         "    timeout /t 1 /nobreak >nul\r\n"
-        f"    {copy_cmd} && goto :updated\r\n"
+        f"    tasklist /FI \"IMAGENAME eq {exe_name}\" 2>nul | find /I \"{exe_name}\" >nul || (\r\n"
+        f"        {copy_cmd} && goto :updated\r\n"
+        "    )\r\n"
         ")\r\n"
+        f"{copy_cmd}\r\n"
         ":updated\r\n"
+        "timeout /t 1 /nobreak >nul\r\n"
         f"{relaunch_cmd}\r\n"
         "exit\r\n"
     )
@@ -223,11 +237,35 @@ def stage_portable_update(package_path: Path) -> Path:
 
 
 def launch_staged_updater(script_path: Path) -> None:
-    """Launch the batch updater in a detached process so the main app can exit cleanly."""
+    """Launch the batch updater in a detached process with a clean environment
+    (setting `PYINSTALLER_RESET_ENVIRONMENT=1`, resetting `SetDllDirectoryW(None)`,
+    and stripping PyInstaller `_MEIPASS2` / `_PYI_*` variables and `_MEI` PATH entries
+    so the relaunched `--onefile` executable unpacks its own fresh temp directory).
+    """
     if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetDllDirectoryW(None)
+        except Exception:
+            pass
+        clean_env = {
+            k: v
+            for k, v in os.environ.items()
+            if not (
+                k.upper().startswith("_MEI")
+                or k.upper().startswith("_PYI")
+                or k.upper() in {"PYTHONHOME", "PYTHONPATH", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"}
+            )
+        }
+        if "PATH" in clean_env:
+            clean_env["PATH"] = os.pathsep.join(
+                p for p in clean_env["PATH"].split(os.pathsep) if "_mei" not in p.lower()
+            )
+        clean_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         subprocess.Popen(
             ["cmd.exe", "/c", str(script_path)],
             cwd=str(app_data_dir()),
+            env=clean_env,
             creationflags=CREATE_NO_WINDOW,
         )
 
@@ -308,3 +346,113 @@ def update_ytdlp_core() -> tuple[bool, str]:
         return True, f"Đã cập nhật thành công lõi yt-dlp lên bản {latest_ver} (lưu tại {dst_ytdlp})."
     except Exception as exc:
         return False, f"Không cập nhật được lõi yt-dlp: {exc}"
+
+
+DENO_WIN64_ZIP_URL = (
+    "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+)
+FFMPEG_WIN64_ZIP_URL = (
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+)
+
+
+def _download_file_with_progress(
+    url: str,
+    dest: Path,
+    label: str,
+    progress_cb: Callable[[str], None] | None = None,
+    timeout: float = 60.0,
+) -> None:
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"YouTubeDesktopDownloader/{APP_VERSION}"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        total = int(resp.headers.get("Content-Length") or 0)
+        received = 0
+        last_mb = -1
+        with dest.open("wb") as out:
+            while True:
+                chunk = resp.read(131072)
+                if not chunk:
+                    break
+                out.write(chunk)
+                received += len(chunk)
+                cur_mb = int(received // (2 * 1024 * 1024))
+                if progress_cb and cur_mb != last_mb:
+                    last_mb = cur_mb
+                    if total > 0:
+                        pct = min(99, int(100 * received / total))
+                        progress_cb(
+                            f"Đang tải tự động {label}: {received / (1024 * 1024):.1f} / {total / (1024 * 1024):.1f} MB ({pct}%)..."
+                        )
+                    else:
+                        progress_cb(f"Đang tải tự động {label}: {received / (1024 * 1024):.1f} MB...")
+
+
+def ensure_runtime_binaries(
+    progress_cb: Callable[[str], None] | None = None,
+    force: bool = False,
+) -> tuple[bool, str]:
+    """Automatically download missing `ffmpeg.exe` and `deno.exe` into `~/youtube_desktop_downloader_data/bin`
+    so the lightweight single-file `.exe` (~35-45 MB) works out-of-the-box on any Windows PC.
+    """
+    from .version import setup_bundled_environment
+
+    setup_bundled_environment()
+    bin_dir = app_data_dir() / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    need_ffmpeg = force or not bool(shutil.which("ffmpeg"))
+    need_deno = force or not bool(shutil.which("deno"))
+
+    if not need_ffmpeg and not need_deno:
+        return True, "FFmpeg và Deno đã sẵn sàng trên hệ thống."
+
+    installed: list[str] = []
+    errors: list[str] = []
+
+    if need_deno:
+        zip_tmp = bin_dir / "_deno_tmp.zip"
+        try:
+            if progress_cb:
+                progress_cb("Đang tải tự động công cụ Deno cho lần chạy đầu tiên...")
+            _download_file_with_progress(DENO_WIN64_ZIP_URL, zip_tmp, "Deno", progress_cb)
+            with zipfile.ZipFile(zip_tmp, "r") as zf:
+                for member in zf.namelist():
+                    if Path(member).name.lower() == "deno.exe":
+                        target_path = bin_dir / "deno.exe"
+                        with zf.open(member) as src, target_path.open("wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        installed.append("Deno")
+                        break
+        except Exception as exc:
+            errors.append(f"Deno ({exc})")
+        finally:
+            zip_tmp.unlink(missing_ok=True)
+
+    if need_ffmpeg:
+        zip_tmp = bin_dir / "_ffmpeg_tmp.zip"
+        try:
+            if progress_cb:
+                progress_cb("Đang tải tự động công cụ FFmpeg cho lần chạy đầu tiên...")
+            _download_file_with_progress(FFMPEG_WIN64_ZIP_URL, zip_tmp, "FFmpeg", progress_cb, timeout=120.0)
+            with zipfile.ZipFile(zip_tmp, "r") as zf:
+                for member in zf.namelist():
+                    # Only extract ffmpeg.exe (probe_media_info uses ffmpeg -i fallback, saving >200 MB!)
+                    if Path(member).name.lower() == "ffmpeg.exe":
+                        target_path = bin_dir / "ffmpeg.exe"
+                        with zf.open(member) as src, target_path.open("wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        installed.append("FFmpeg")
+                        break
+        except Exception as exc:
+            errors.append(f"FFmpeg ({exc})")
+        finally:
+            zip_tmp.unlink(missing_ok=True)
+
+    setup_bundled_environment()
+    if errors:
+        return False, "Không tải đủ công cụ nền: " + ", ".join(errors)
+    return True, "Đã tự động cài đặt thành công: " + ", ".join(installed) + f" vào {bin_dir}"
+

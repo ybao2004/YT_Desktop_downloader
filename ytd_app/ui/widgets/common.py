@@ -27,7 +27,8 @@ def tool_button(
     icon_name: str = "",
     icon_size: int = 15,
 ) -> QPushButton:
-    button = QPushButton(label)
+    safe_label = label.replace("&", "&&") if "&" in label and "&&" not in label else label
+    button = QPushButton(safe_label)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     if callback is not None:
         button.clicked.connect(callback)
@@ -77,7 +78,7 @@ def _apply_button_icon(btn: QPushButton) -> None:
         t = theme_manager().tokens
         if btn.objectName() == "primaryButton":
             col = t["on_primary"]
-        elif danger or btn.objectName() == "cardDangerButton":
+        elif danger or btn.objectName() in ("cardDangerButton", "muteActiveButton"):
             col = t["danger"]
         else:
             col = t["text_secondary"]
@@ -113,7 +114,7 @@ class FolderChip(QPushButton):
         else:
             short = "Chọn thư mục..."
         if len(short) > 36:
-            short = "…/" + p.name
+            short = f"{p.drive}\\…\\{p.name}" if p.drive else f"…/{p.name}"
         self.setText(f" {short}")
         self.setToolTip(f"Thư mục lưu: {self._full_path}\nBấm để chọn thư mục khác")
 

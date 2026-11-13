@@ -26,6 +26,7 @@ LIGHT: dict[str, str] = {
     "warning": "#D97706",
     "info": "#2563EB",
     "purple": "#7C3AED",
+    "selected_row": "#ECEEF2",
     "scrollbar": "#D4D4D8",
     "scrollbar_hover": "#A1A1AA",
 }
@@ -51,6 +52,7 @@ DARK: dict[str, str] = {
     "warning": "#FBBF24",
     "info": "#60A5FA",
     "purple": "#A78BFA",
+    "selected_row": "#2D2E35",
     "scrollbar": "#3F3F46",
     "scrollbar_hover": "#52525B",
 }
@@ -147,7 +149,7 @@ QMainWindow, QDialog {{
 }}
 
 QWidget {{
-    font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", -apple-system, sans-serif;
+    font-family: "Inter";
     font-size: 13px;
     color: {t['text']};
 }}
@@ -277,6 +279,16 @@ QFrame#jobRow {{
 
 QFrame#jobRow:hover {{
     background-color: {t['hover']};
+}}
+
+QFrame#jobRow[selected="true"] {{
+    background-color: {t['selected_row']};
+    border: none;
+    border-bottom: 1px solid {t['border']};
+}}
+
+QFrame#jobRow[selected="true"]:hover {{
+    background-color: {t['selected_row']};
 }}
 
 QLabel#cardThumbnail, QLabel#thumbnail {{
@@ -458,6 +470,23 @@ QPushButton#ghostButton:checked {{
     border-color: {t['border']};
     color: {t['text']};
     font-weight: 600;
+}}
+
+QPushButton#muteActiveButton {{
+    background-color: {t['danger_bg']};
+    border: 1px solid {t['danger']};
+    border-radius: 7px;
+    padding: 4px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    color: {t['danger']};
+    min-height: 20px;
+}}
+
+QPushButton#muteActiveButton:hover {{
+    background-color: {t['danger_bg']};
+    border-color: {t['danger']};
+    color: {t['danger']};
 }}
 
 QPushButton#iconButton, QPushButton#cardActionButton {{
@@ -654,6 +683,13 @@ QStatusBar {{
 
 QStatusBar::item {{
     border: none;
+}}
+
+QStatusBar QPushButton#folderChip {{
+    padding: 2px 8px;
+    min-height: 18px;
+    border-radius: 5px;
+    font-size: 12px;
 }}
 """
 

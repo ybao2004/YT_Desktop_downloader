@@ -81,6 +81,15 @@ class Sidebar(QFrame):
         ]
         for key, text, icon_name in secondary_items:
             btn = self._make_nav_button(key, text, icon_name)
+            if key == "settings":
+                btn_layout = QHBoxLayout(btn)
+                btn_layout.setContentsMargins(0, 0, 10, 0)
+                btn_layout.addStretch(1)
+                self.update_dot = QLabel()
+                self.update_dot.setFixedSize(8, 8)
+                self.update_dot.setStyleSheet("background-color: #EF4444; border-radius: 4px;")
+                self.update_dot.setVisible(False)
+                btn_layout.addWidget(self.update_dot, 0, Qt.AlignmentFlag.AlignVCenter)
             layout.addWidget(btn)
 
         self.settings_btn = self.nav_buttons["settings"][0]
@@ -127,10 +136,13 @@ class Sidebar(QFrame):
 
     def set_update_badge(self, version_str: str) -> None:
         btn, _ic = self.nav_buttons["settings"]
+        btn.setText("  Cài đặt")
+        if hasattr(self, "update_dot"):
+            self.update_dot.setVisible(bool(version_str))
         if version_str:
-            btn.setText(f"  Cài đặt  • v{version_str}")
+            btn.setToolTip(f"Có bản cập nhật mới v{version_str}! Bấm để vào mục Cài đặt → Cập nhật")
         else:
-            btn.setText("  Cài đặt")
+            btn.setToolTip("")
 
     def _refresh_icons(self, *_args) -> None:
         t = theme_manager().tokens

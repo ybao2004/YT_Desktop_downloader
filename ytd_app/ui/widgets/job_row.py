@@ -1,6 +1,8 @@
 """Minimal list-row widget for a single download job with hover-revealed actions."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QFontMetrics, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import (
@@ -23,7 +25,7 @@ from ...models import Job
 from ...theme import progress_bar_qss, status_badge_qss, theme_manager
 
 STATUS_TEXT: dict[str, str] = {
-    "queued": "Chờ tải",
+    "queued": "Hàng chờ",
     "downloading": "Đang tải",
     "paused": "Tạm dừng",
     "processing": "Đang xử lý",
@@ -37,6 +39,7 @@ STATUS_TEXT: dict[str, str] = {
 class JobRow(QFrame):
     """Flat list row inside the unified jobs container; reveals action icons on hover."""
 
+    start_requested = pyqtSignal(str)
     pause_requested = pyqtSignal(str)
     resume_requested = pyqtSignal(str)
     cancel_requested = pyqtSignal(str)
@@ -44,7 +47,12 @@ class JobRow(QFrame):
     remove_requested = pyqtSignal(str)
     play_requested = pyqtSignal(str)
     folder_requested = pyqtSignal(str)
+    change_folder_requested = pyqtSignal(str)
     transcode_requested = pyqtSignal(str)
+    mute_requested = pyqtSignal(str)
+    delete_file_requested = pyqtSignal(str)
+    delete_selected_files_requested = pyqtSignal()
+    clicked_with_modifiers = pyqtSignal(str, object)
 
     def __init__(self, job: Job, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -53,7 +61,9 @@ class JobRow(QFrame):
         self._raw_title: str = job.title or job.url
         self._last_status: str = ""
         self._hovered: bool = False
+        self._selected: bool = False
         self._has_custom_thumb: bool = False
+        self._custom_thumb_pixmap: QPixmap | None = None
 
         self.setObjectName("jobRow")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
@@ -135,6 +145,11 @@ class JobRow(QFrame):
         act_layout.setContentsMargins(0, 0, 0, 0)
         act_layout.setSpacing(3)
 
+        self.btn_start = icon_button(
+            "download",
+            lambda: self.start_requested.emit(self.job_id),
+            "Tải mục này ngay",
+        )
         self.btn_pause = icon_button(
             "pause",
             lambda: self.pause_requested.emit(self.job_id),
@@ -172,9 +187,9 @@ class JobRow(QFrame):
             "Tải lại",
         )
         self.btn_remove = icon_button(
-            "trash-2",
+            "x",
             lambda: self.remove_requested.emit(self.job_id),
-            "Xóa khỏi danh sách",
+            "Xóa khỏi hàng đợi",
             danger=True,
         )
         self.btn_more = icon_button(
@@ -184,6 +199,7 @@ class JobRow(QFrame):
         )
 
         for b in (
+            self.btn_start,
             self.btn_pause,
             self.btn_resume,
             self.btn_play,
@@ -212,6 +228,24 @@ class JobRow(QFrame):
 
     def is_hovered(self) -> bool:
         return self._hovered
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = bool(selected)
+        self.setProperty("selected", "true" if self._selected else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def is_selected(self) -> bool:
+        return getattr(self, "_selected", False)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked_with_modifiers.emit(self.job_id, event.modifiers())
+        elif event.button() == Qt.MouseButton.RightButton:
+            if not self.is_selected():
+                self.clicked_with_modifiers.emit(self.job_id, Qt.KeyboardModifier.NoModifier)
+        super().mousePressEvent(event)
 
     def enterEvent(self, event) -> None:
         self.set_hovered(True)
@@ -251,6 +285,21 @@ class JobRow(QFrame):
         status = job.status
         menu = QMenu(self)
 
+        win = self.window()
+        selected_ids: set[str] = getattr(win, "selected_job_ids", set()) if win else set()
+        is_multi = self.job_id in selected_ids and len(selected_ids) > 1
+
+        multi_done_files: list[str] = []
+        if is_multi and win and hasattr(win, "jobs_by_id"):
+            for jid in selected_ids:
+                j = win.jobs_by_id.get(jid)
+                if j and j.status == "done" and j.filepath:
+                    try:
+                        if Path(j.filepath).exists():
+                            multi_done_files.append(jid)
+                    except Exception:
+                        pass
+
         is_running = status in {"downloading", "processing", "converting"}
         is_paused = status == "paused"
         is_queued = status == "queued"
@@ -258,6 +307,12 @@ class JobRow(QFrame):
         is_retryable = status in {"done", "error", "cancelled"}
         is_removable = status not in {"downloading", "processing", "converting", "paused"}
 
+        if is_queued:
+            act_start = menu.addAction(icons.icon("download", size=14), "Tải mục này ngay")
+            act_start.triggered.connect(lambda: self.start_requested.emit(self.job_id))
+        if is_queued or is_paused or (is_retryable and not (is_done and job.filepath)):
+            act_ch_folder = menu.addAction(icons.icon("folder", size=14), "Đổi thư mục lưu...")
+            act_ch_folder.triggered.connect(lambda: self.change_folder_requested.emit(self.job_id))
         if is_done and job.filepath:
             act_play = menu.addAction(icons.icon("play", size=14), "Phát tập tin")
             act_play.triggered.connect(lambda: self.play_requested.emit(self.job_id))
@@ -267,6 +322,9 @@ class JobRow(QFrame):
         if is_done and job.mode == "video" and job.filepath:
             act_tc = menu.addAction(icons.icon("repeat-2", size=14), "Đổi Codec video (FFmpeg)...")
             act_tc.triggered.connect(lambda: self.transcode_requested.emit(self.job_id))
+            if not getattr(job, "mute_audio", False):
+                act_mute = menu.addAction(icons.icon("volume-x", size=14), "Tắt tiếng (Xóa âm thanh)")
+                act_mute.triggered.connect(lambda: self.mute_requested.emit(self.job_id))
 
         if is_running:
             act_pause = menu.addAction(icons.icon("pause", size=14), "Tạm dừng")
@@ -288,12 +346,43 @@ class JobRow(QFrame):
         act_copy = menu.addAction(icons.icon("link", size=14), "Sao chép liên kết YouTube")
         act_copy.triggered.connect(lambda: QApplication.clipboard().setText(job.url))
 
-        if is_running or is_paused or is_queued:
+        if is_running or is_paused:
             menu.addSeparator()
             act_cancel = menu.addAction(icons.icon("x", size=14), "Hủy tác vụ")
             act_cancel.triggered.connect(lambda: self.cancel_requested.emit(self.job_id))
-        if is_removable:
-            act_rm = menu.addAction(icons.icon("trash-2", size=14), "Xóa khỏi danh sách")
+
+        t_tokens = theme_manager().tokens
+        if is_multi:
+            menu.addSeparator()
+            if multi_done_files:
+                act_del_files = menu.addAction(
+                    icons.icon("trash-2", color=t_tokens.get("danger"), size=14),
+                    f"Xóa {len(multi_done_files)} tệp khỏi máy tính...",
+                )
+                act_del_files.triggered.connect(self.delete_selected_files_requested.emit)
+            act_rm_selected = menu.addAction(
+                icons.icon("trash-2", size=14),
+                f"Xóa {len(selected_ids)} mục khỏi hàng đợi",
+            )
+            if win and hasattr(win, "delete_selected_jobs"):
+                act_rm_selected.triggered.connect(win.delete_selected_jobs)
+        elif is_removable:
+            menu.addSeparator()
+            has_file_on_disk = False
+            if is_done and job.filepath:
+                try:
+                    has_file_on_disk = Path(job.filepath).exists()
+                except Exception:
+                    has_file_on_disk = False
+
+            if has_file_on_disk:
+                act_del_file = menu.addAction(
+                    icons.icon("trash-2", color=t_tokens.get("danger"), size=14),
+                    "Xóa tệp khỏi máy tính...",
+                )
+                act_del_file.triggered.connect(lambda: self.delete_file_requested.emit(self.job_id))
+
+            act_rm = menu.addAction(icons.icon("trash-2", size=14), "Xóa khỏi hàng đợi")
             act_rm.triggered.connect(lambda: self.remove_requested.emit(self.job_id))
 
         return menu
@@ -305,7 +394,10 @@ class JobRow(QFrame):
         if pixmap.isNull():
             return
         self._has_custom_thumb = True
+        self._custom_thumb_pixmap = pixmap
         w, h = self.thumb_label.width(), self.thumb_label.height()
+        if w <= 10 or h <= 10:
+            w, h = 96, 54
         scaled = pixmap.scaled(
             w,
             h,
@@ -325,7 +417,7 @@ class JobRow(QFrame):
         self.thumb_label.setPixmap(rounded)
 
     def _render_placeholder_thumb(self, mode: str) -> None:
-        if self._has_custom_thumb:
+        if getattr(self, "_has_custom_thumb", False):
             return
         t = theme_manager().tokens
         ic_name = "music" if mode == "audio" else "video"
@@ -333,7 +425,10 @@ class JobRow(QFrame):
 
     def _on_theme_changed(self, *_args) -> None:
         self._last_status = ""
-        self._render_placeholder_thumb(self._job_snapshot.mode)
+        if getattr(self, "_has_custom_thumb", False) and getattr(self, "_custom_thumb_pixmap", None):
+            self.set_thumbnail_pixmap(self._custom_thumb_pixmap)
+        else:
+            self._render_placeholder_thumb(self._job_snapshot.mode)
         self.update_from_job(self._job_snapshot)
 
     def update_from_job(self, job: Job) -> None:
@@ -345,23 +440,37 @@ class JobRow(QFrame):
         self.title_label.setToolTip(f"{job.title}\n{job.url}")
 
         ext_str = "GỐC" if job.container == "original" else job.container.upper()
-        if job.format_id:
-            qual_str = f"ID {job.format_id}"
-        elif job.mode == "video":
-            qual_str = "Tốt nhất" if job.quality == "best" else f"{job.quality}p"
-        else:
-            qual_str = f"{job.audio_bitrate} kbps" if job.container in ("mp3", "m4a") else "Lossless"
-
-        spec_parts = [ext_str, qual_str]
         if job.mode == "video":
             codec_disp = job.detected_codec or CODEC_LABELS.get(job.video_codec, job.video_codec.upper())
-            spec_parts.append(codec_disp)
-            self.codec_badge.setText(codec_disp)
+            if job.detected_resolution:
+                res_disp = job.detected_resolution
+            elif job.format_id:
+                res_disp = f"ID {job.format_id}"
+            elif job.quality == "best":
+                res_disp = "Tốt nhất"
+            else:
+                res_disp = f"{job.quality}p"
+            fps_disp = job.detected_fps or "Auto FPS"
+            br_disp = job.detected_bitrate or "Auto kbps"
+        else:
+            codec_disp = job.detected_codec or ("Gốc" if job.container == "original" else job.container.upper())
+            res_disp = "Audio"
+            fps_disp = "—"
+            br_disp = (
+                job.detected_bitrate
+                or (f"{job.audio_bitrate} kbps" if job.container in ("mp3", "m4a") else "Lossless")
+            )
+
+        self.codec_badge.setText(codec_disp)
+        spec_parts = [ext_str, codec_disp, res_disp, fps_disp, br_disp]
+        if job.mode == "video" and getattr(job, "mute_audio", False):
+            spec_parts.append("Tắt tiếng")
         if job.clip_start or job.clip_end:
             spec_parts.append(f"{job.clip_start or '00:00'}–{job.clip_end or 'end'}")
         if job.subtitles:
             spec_parts.append("CC")
-        self.spec_badge.setText(" · ".join(spec_parts))
+        spec_text = " · ".join(spec_parts)
+        self.spec_badge.setText(spec_text)
 
         status = job.status
         mode = theme_manager().mode
@@ -376,6 +485,8 @@ class JobRow(QFrame):
         self.progress_bar.setValue(round(pct * 10))
         self.progress_bar.setVisible(status != "done")
 
+        save_path_str = job.filepath or job.directory or "—"
+
         if status == "downloading":
             parts = [f"{pct:.1f}%"]
             if job.speed and job.speed != "—":
@@ -384,50 +495,53 @@ class JobRow(QFrame):
                 parts.append(f"còn {job.eta}")
             if job.size and job.size != "—":
                 parts.append(job.size)
+            parts.append(save_path_str)
             detail = " · ".join(parts)
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['text_secondary']}; font-size: 12px; }}")
         elif status == "converting":
             parts = [f"{pct:.1f}%", job.speed or "Đang chuyển đổi Codec bằng FFmpeg"]
             if job.eta and job.eta != "—":
                 parts.append(f"còn {job.eta}")
+            parts.append(save_path_str)
             detail = " · ".join(parts)
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['purple']}; font-size: 12px; font-weight: 500; }}")
         elif status == "processing":
-            detail = "Đang ghép luồng và nhúng metadata bằng FFmpeg..."
+            detail = f"Đang ghép luồng & metadata · {save_path_str}"
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['purple']}; font-size: 12px; font-weight: 500; }}")
         elif status == "paused":
-            detail = f"Đã tạm dừng ở {pct:.1f}%"
+            detail = f"Tạm dừng ở {pct:.1f}% · {save_path_str}"
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['warning']}; font-size: 12px; }}")
         elif status == "done":
-            detail = job.filepath or f"Đã lưu tại {job.directory}"
+            detail = save_path_str
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: 12px; }}")
         elif status == "error":
-            detail = job.error or "Đã xảy ra lỗi trong quá trình tải."
+            err_msg = job.error or "Đã xảy ra lỗi trong quá trình tải."
+            detail = f"{err_msg} · {save_path_str}"
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['danger']}; font-size: 12px; font-weight: 500; }}")
         elif status == "cancelled":
-            detail = "Đã hủy"
+            detail = f"Đã hủy · {save_path_str}"
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: 12px; }}")
         else:
-            detail = f"Đang chờ · Lưu vào {job.directory}"
+            detail = save_path_str
             self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: 12px; }}")
 
-        full_detail = detail
-        if len(detail) > 84:
-            detail = detail[:81] + "…"
+        full_detail = f"{spec_text} · {detail}"
+        if len(detail) > 78:
+            detail = detail[:75] + "…"
         self.detail_label.setText(detail)
+        self.spec_badge.setToolTip(full_detail)
         self.detail_label.setToolTip(full_detail)
 
         is_running = status in {"downloading", "processing", "converting"}
         is_paused = status == "paused"
         is_queued = status == "queued"
         is_done = status == "done"
-        is_retryable = status in {"done", "error", "cancelled"}
-        is_removable = status not in {"downloading", "processing", "converting", "paused"}
 
         # Quick hover buttons (at most 2 primary icons + '⋯' menu)
+        self.btn_start.setVisible(is_queued)
         self.btn_pause.setVisible(is_running)
         self.btn_resume.setVisible(is_paused)
-        self.btn_cancel.setVisible(is_running or is_paused or is_queued)
+        self.btn_cancel.setVisible(is_running or is_paused)
         self.btn_play.setVisible(is_done and bool(job.filepath))
         self.btn_folder.setVisible(is_done)
         self.btn_retry.setVisible(status in {"error", "cancelled"})

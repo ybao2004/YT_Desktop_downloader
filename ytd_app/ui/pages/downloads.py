@@ -31,6 +31,28 @@ if TYPE_CHECKING:
     from ..main_window import MainWindow
 
 
+class PasteAwareLineEdit(QLineEdit):
+    """QLineEdit that intercepts Ctrl+V / context-menu Paste when a custom paste handler is set."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.paste_interceptor = None
+
+    def keyPressEvent(self, event) -> None:
+        from PyQt6.QtGui import QKeySequence
+        if event.matches(QKeySequence.StandardKey.Paste) and callable(self.paste_interceptor):
+            if self.paste_interceptor():
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+    def insertFromMimeData(self, source) -> None:
+        if callable(self.paste_interceptor) and source and source.hasText():
+            if self.paste_interceptor():
+                return
+        super().insertFromMimeData(source)
+
+
 def build_downloads_page(win: MainWindow) -> QWidget:
     page = QWidget()
     page.setObjectName("pageContainer")
@@ -56,16 +78,18 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     cmd_layout.setContentsMargins(16, 14, 16, 14)
     cmd_layout.setSpacing(10)
 
-    # Row 1: URL Input (with embedded Paste action) + Analyze + Primary Download
+    # Row 1: URL Input (single link by default, with embedded Paste action) + Primary Download ("Tải xuống")
     input_row = QHBoxLayout()
     input_row.setSpacing(8)
 
-    win.url_edit = QLineEdit()
+    win.url_edit = PasteAwareLineEdit()
+    win.url_edit.paste_interceptor = win.intercept_main_url_paste
     win.url_edit.setObjectName("urlInput")
     win.url_edit.setClearButtonEnabled(True)
     win.url_edit.setPlaceholderText("Dán liên kết YouTube — video, Shorts hoặc playlist...")
     win.url_edit.returnPressed.connect(win.on_url_enter_pressed)
     win.url_edit.textChanged.connect(win.mark_preview_stale)
+    win.batch_url_edit = win.url_edit
 
     win.paste_action = win.url_edit.addAction(
         icons.icon("clipboard-paste", size=15),
@@ -77,7 +101,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         lambda _m: win.paste_action.setIcon(icons.icon("clipboard-paste", size=15))
     )
 
-    # Keep paste_btn attribute for backward compatibility
+    # Keep paste_btn, analyze_btn & queue_btn attributes hidden for backward compatibility
     win.paste_btn = tool_button(
         "Dán",
         win.paste_from_clipboard,
@@ -88,27 +112,40 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.paste_btn.setVisible(False)
     win.paste_btn.setParent(command_card)
 
-    input_row.addWidget(win.url_edit, 1)
-
     win.analyze_btn = tool_button(
         "Phân tích",
         win.start_analysis,
         "Xem trước thông tin video, chọn luồng codec hoặc chọn từng video trong playlist",
         "secondaryAccentButton",
     )
-    input_row.addWidget(win.analyze_btn)
+    win.analyze_btn.setVisible(False)
+    win.analyze_btn.setParent(command_card)
+
+    win.queue_btn = tool_button(
+        "Hàng đợi",
+        win.on_queue_btn_clicked,
+        "Thêm liên kết vào danh sách Chờ tải",
+        "secondaryAccentButton",
+        icon_name="list-plus",
+    )
+    win.queue_btn.setVisible(False)
+    win.queue_btn.setParent(command_card)
+    win.batch_queue_btn = win.queue_btn
+
+    input_row.addWidget(win.url_edit, 1)
 
     win.add_btn = tool_button(
         "Tải xuống",
         win.on_primary_download_clicked,
-        "Thêm vào hàng đợi và tự động bắt đầu tải ngay",
+        "Thêm liên kết đang nhập (nếu có) và bắt đầu chạy tải toàn bộ Hàng đợi ngay lập tức",
         "primaryButton",
         icon_name="download",
     )
+    win.batch_download_btn = win.add_btn
     input_row.addWidget(win.add_btn)
     cmd_layout.addLayout(input_row)
 
-    # Row 2: Segmented Video|Audio + Container + Quality/Bitrate + Codec + Options toggle + Folder chip
+    # Row 2: Segmented Video|Audio + Container + Quality/Bitrate + Codec + Options toggle + Right-aligned Multi-line & Auto-capture
     config_row = QHBoxLayout()
     config_row.setSpacing(8)
 
@@ -182,6 +219,19 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.codec_combo.currentIndexChanged.connect(win.on_codec_changed)
     config_row.addWidget(win.codec_combo)
 
+    win.mute_btn = tool_button(
+        "Âm thanh: Bật",
+        None,
+        "Đang bật âm thanh (Bấm để chuyển sang chế độ Tắt tiếng / Video-only)",
+        "ghostButton",
+        icon_name="volume-2",
+        icon_size=14,
+    )
+    win.mute_btn.setCheckable(True)
+    win.mute_btn.setChecked(False)
+    win.mute_btn.toggled.connect(win.on_mute_toggled)
+    config_row.addWidget(win.mute_btn)
+
     win.more_options_btn = tool_button(
         "Tùy chọn ▾",
         None,
@@ -206,9 +256,33 @@ def build_downloads_page(win: MainWindow) -> QWidget:
 
     config_row.addStretch(1)
 
-    win.folder_chip = FolderChip(win.settings.download_dir, command_card)
+    win.multiline_btn = tool_button(
+        "Nhập nhiều dòng...",
+        win.open_multiline_dialog,
+        "Mở hộp thoại dán hoặc nhập nhiều dòng liên kết YouTube cùng lúc",
+        "ghostButton",
+        icon_name="list-plus",
+        icon_size=14,
+    )
+    win.batch_multiline_btn = win.multiline_btn
+    config_row.addWidget(win.multiline_btn)
+
+    win.auto_capture_btn = tool_button(
+        "Tự bắt link: Tắt",
+        None,
+        "Tự động bắt liên kết YouTube khi bạn sao chép (Copy) vào Clipboard và đưa vào Hàng đợi (Mặc định: Tắt)",
+        "ghostButton",
+        icon_name="clipboard-paste",
+        icon_size=14,
+    )
+    win.auto_capture_btn.setCheckable(True)
+    win.auto_capture_btn.setChecked(False)
+    win.auto_capture_btn.toggled.connect(win.on_auto_capture_toggled)
+    config_row.addWidget(win.auto_capture_btn)
+
+    # Storage folder chip will be mounted on the bottom statusBar (left-aligned)
+    win.folder_chip = FolderChip(win.settings.download_dir, page)
     win.folder_chip.clicked.connect(win.choose_folder)
-    config_row.addWidget(win.folder_chip)
 
     cmd_layout.addLayout(config_row)
 
@@ -420,7 +494,12 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.preview_stack.addWidget(playlist_page)
     layout.addWidget(win.preview_card)
 
-    # 3. FILTER BAR: Filter chips + Search + Queue toggle icon + Bulk '⋯' menu
+    # 3. SHARED QUEUE SECTION (Filter Bar + Unified Job List Card)
+    win.queue_section = QWidget(page)
+    queue_sec_layout = QVBoxLayout(win.queue_section)
+    queue_sec_layout.setContentsMargins(0, 0, 0, 0)
+    queue_sec_layout.setSpacing(10)
+
     filter_bar = QHBoxLayout()
     filter_bar.setSpacing(4)
 
@@ -428,7 +507,9 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.tab_group.setExclusive(True)
     win.tab_buttons = {}
     for key, text in [
+        ("recent", "Gần đây 0"),
         ("all", "Tất cả 0"),
+        ("queued", "Hàng chờ 0"),
         ("active", "Đang tải 0"),
         ("done", "Hoàn tất 0"),
         ("error", "Lỗi 0"),
@@ -437,20 +518,62 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         btn.setObjectName("tabButton")
         btn.setCheckable(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        if key == "all":
+        if key == "recent":
             btn.setChecked(True)
-        btn.clicked.connect(lambda _checked=False, k=key: win.switch_workspace_tab(k))
+        btn.clicked.connect(lambda _checked=False, k=key: win.on_filter_pill_clicked(k))
         win.tab_group.addButton(btn)
         win.tab_buttons[key] = btn
         filter_bar.addWidget(btn)
 
     filter_bar.addStretch(1)
 
+    win.retry_all_btn = tool_button(
+        "Tải lại tất cả",
+        win.retry_all_visible,
+        "Tải lại tất cả các mục trong tab trạng thái đang mở theo cấu hình hiện tại",
+        "ghostButton",
+        icon_name="rotate-cw",
+        icon_size=14,
+    )
+    filter_bar.addWidget(win.retry_all_btn)
+
+    win.undo_btn = tool_button(
+        "Hoàn tác",
+        win.undo_last_remove,
+        "Hoàn tác thao tác xóa gần nhất để khôi phục lại tác vụ vào hàng đợi",
+        "ghostButton",
+        icon_name="undo-2",
+        icon_size=14,
+    )
+    win.undo_btn.setEnabled(False)
+    filter_bar.addWidget(win.undo_btn)
+
+    win.redo_btn = tool_button(
+        "Làm lại",
+        win.redo_last_remove,
+        "Làm lại thao tác xóa vừa hoàn tác trong tab hiện tại",
+        "ghostButton",
+        icon_name="redo-2",
+        icon_size=14,
+    )
+    win.redo_btn.setEnabled(False)
+    filter_bar.addWidget(win.redo_btn)
+
+    win.clear_all_btn = tool_button(
+        "Xóa tất cả",
+        win.clear_all_jobs,
+        "Xóa tất cả tác vụ khỏi hàng đợi (có thể bấm Hoàn tác để khôi phục)",
+        "ghostButton",
+        icon_name="trash-2",
+        icon_size=14,
+    )
+    filter_bar.addWidget(win.clear_all_btn)
+
     win.search_edit = QLineEdit()
     win.search_edit.setObjectName("searchInput")
     win.search_edit.setClearButtonEnabled(True)
     win.search_edit.setPlaceholderText("Tìm kiếm tác vụ...")
-    win.search_edit.setFixedWidth(210)
+    win.search_edit.setFixedWidth(185)
     search_act = win.search_edit.addAction(
         icons.icon("search", size=14),
         QLineEdit.ActionPosition.LeadingPosition,
@@ -464,7 +587,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.start_btn = icon_button(
         "play",
         win.toggle_queue_running,
-        "Bắt đầu hoặc tạm dừng nhận tác vụ mới trong hàng đợi",
+        "Tiếp tục tải / Tạm dừng tất cả tác vụ",
     )
     filter_bar.addWidget(win.start_btn)
 
@@ -488,21 +611,33 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         a_pause.triggered.connect(win.pause_all_active)
         a_resume = menu.addAction(icons.icon("play", size=14), "Tiếp tục tất cả đang dừng")
         a_resume.triggered.connect(win.resume_all_paused)
+        a_retry_vis = menu.addAction(icons.icon("rotate-cw", size=14), "Tải lại tất cả trong mục đang xem")
+        a_retry_vis.triggered.connect(win.retry_all_visible)
         a_retry = menu.addAction(icons.icon("rotate-cw", size=14), "Tải lại tất cả mục lỗi")
         a_retry.triggered.connect(win.retry_all_failed)
         menu.addSeparator()
         a_clear = menu.addAction(icons.icon("trash-2", size=14), "Dọn sạch mục đã hoàn tất")
         a_clear.triggered.connect(win.clear_completed_jobs)
+        a_clear_all = menu.addAction(icons.icon("trash-2", size=14), "Xóa tất cả hàng đợi")
+        a_clear_all.triggered.connect(win.clear_all_jobs)
+        if win.deleted_jobs_stack:
+            a_undo = menu.addAction(icons.icon("undo-2", size=14), "Hoàn tác lần xóa vừa rồi")
+            a_undo.triggered.connect(win.undo_last_remove)
+        cur_tab = getattr(win, "current_filter", "recent")
+        redo_stack = win.tab_redo_stacks.get(cur_tab, []) if hasattr(win, "tab_redo_stacks") else []
+        if redo_stack:
+            a_redo = menu.addAction(icons.icon("redo-2", size=14), "Làm lại lần xóa vừa hoàn tác")
+            a_redo.triggered.connect(win.redo_last_remove)
         menu.exec(win.bulk_menu_btn.mapToGlobal(QPoint(0, win.bulk_menu_btn.height() + 2)))
 
     win.bulk_menu_btn = icon_button(
         "ellipsis",
         open_bulk_menu,
-        "Thao tác hàng loạt (Tạm dừng hết, Tiếp tục hết, Tải lại lỗi, Dọn mục xong)",
+        "Thao tác hàng loạt (Tạm dừng hết, Tiếp tục hết, Tải lại lỗi, Dọn mục xong, Xóa tất cả)",
     )
     filter_bar.addWidget(win.bulk_menu_btn)
 
-    layout.addLayout(filter_bar)
+    queue_sec_layout.addLayout(filter_bar)
 
     # 4. UNIFIED JOB LIST CARD (scrollable rows inside one bordered container)
     list_card = QFrame()
@@ -558,5 +693,10 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.job_table.setVisible(False)
     list_card_layout.addWidget(win.job_table)
 
-    layout.addWidget(list_card, 1)
+    queue_sec_layout.addWidget(list_card, 1)
+
+    win.downloads_queue_slot = QVBoxLayout()
+    win.downloads_queue_slot.setContentsMargins(0, 0, 0, 0)
+    win.downloads_queue_slot.addWidget(win.queue_section, 1)
+    layout.addLayout(win.downloads_queue_slot, 1)
     return page

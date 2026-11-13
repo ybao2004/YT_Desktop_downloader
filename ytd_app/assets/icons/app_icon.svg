@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="#E62117" />
+  <!-- Downward arrow stem -->
+  <rect x="54" y="28" width="20" height="36" rx="4" fill="#FFFFFF" />
+  <!-- Downward arrow head -->
+  <polygon points="64,88 32,58 96,58" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round" />
+  <!-- Bottom tray -->
+  <rect x="30" y="94" width="68" height="12" rx="6" fill="#FFFFFF" />
+</svg>

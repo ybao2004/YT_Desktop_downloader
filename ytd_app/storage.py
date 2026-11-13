@@ -18,6 +18,22 @@ def config_dir() -> Path:
     return app_data_dir()
 
 
+def peek_theme_mode() -> str:
+    """Fast, zero-overhead theme mode extraction from settings.json without loading Qt."""
+    try:
+        p = config_dir() / "settings.json"
+        if p.is_file():
+            with p.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                mode = str(data.get("theme_mode") or "").strip().lower()
+                if mode in {"system", "light", "dark"}:
+                    return mode
+    except Exception:
+        pass
+    return "system"
+
+
 def _normalize_download_dir(raw_dir: str) -> str:
     """Ensure `download_dir` is valid on the current machine, migrating legacy defaults
     (`YouTube Downloads`, `dist\\Downloads`) or paths from another PC's user profile
@@ -89,12 +105,18 @@ class Storage:
         try:
             settings = Settings.from_dict(raw if isinstance(raw, dict) else {})
             settings.max_concurrent = max(1, min(5, int(settings.max_concurrent)))
-            settings.fragment_connections = max(1, min(4, int(settings.fragment_connections)))
+            settings.fragment_connections = max(1, min(8, int(settings.fragment_connections)))
+            if settings.fragment_connections <= 1:
+                settings.fragment_connections = 4
             settings.download_dir = _normalize_download_dir(settings.download_dir)
             settings.portable_mode = True
+            settings.update_manifest_url = ""
             if settings.cookie_file and not Path(settings.cookie_file).expanduser().is_file():
                 # Clear invalid cookie file path if copied from another machine
                 settings.cookie_file = ""
+            # Ensure auto_check_updates defaults to True for v2.7+ if not explicitly customized
+            if "auto_check_updates" not in (raw if isinstance(raw, dict) else {}):
+                settings.auto_check_updates = True
             return settings
         except (TypeError, ValueError):
             return Settings()
@@ -113,6 +135,11 @@ class Storage:
                 continue
             try:
                 job = Job.from_dict(data)
+                # Recover zombie jobs from sudden shutdowns/crashes
+                if job.status in {"downloading", "processing", "converting"}:
+                    job.status = "paused"
+                    job.speed = ""
+                    job.eta = ""
                 if job.status == "queued":
                     job.directory = _normalize_download_dir(job.directory)
                 jobs.append(job)

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -49,14 +50,52 @@ def build_settings_page(win: MainWindow) -> QWidget:
     header.addStretch(1)
     outer_v.addLayout(header)
 
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    content = QWidget()
-    content.setObjectName("scrollContents")
-    v = QVBoxLayout(content)
-    v.setContentsMargins(0, 0, 8, 12)
-    v.setSpacing(14)
+    # Sub-tabs Navigation using SegmentedControl
+    win.settings_sub_segment = SegmentedControl()
+    win.settings_sub_segment.addItem("Chung", 0, icon_name="sliders-horizontal")
+    win.settings_sub_segment.addItem("Cập nhật", 1, icon_name="refresh-cw")
+    win.settings_sub_segment.addItem("Giới thiệu", 2, icon_name="info")
+    outer_v.addWidget(win.settings_sub_segment)
+
+    win.settings_stack = QStackedWidget()
+
+    # -------------------------------------------------------------
+    # TAB 1: CÀI ĐẶT CHUNG (Theme, Tải xuống, Mã hóa, Hệ thống)
+    # -------------------------------------------------------------
+    tab_general_scroll = QScrollArea()
+    tab_general_scroll.setWidgetResizable(True)
+    tab_general_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    general_content = QWidget()
+    general_content.setObjectName("scrollContents")
+    v_general = QVBoxLayout(general_content)
+    v_general.setContentsMargins(0, 0, 8, 12)
+    v_general.setSpacing(14)
+
+    # -------------------------------------------------------------
+    # TAB 2: CẬP NHẬT (Môi trường runtime & Cập nhật ứng dụng/yt-dlp)
+    # -------------------------------------------------------------
+    tab_update_scroll = QScrollArea()
+    tab_update_scroll.setWidgetResizable(True)
+    tab_update_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    update_content = QWidget()
+    update_content.setObjectName("scrollContents")
+    v_update = QVBoxLayout(update_content)
+    v_update.setContentsMargins(0, 0, 8, 12)
+    v_update.setSpacing(14)
+
+    # -------------------------------------------------------------
+    # TAB 3: GIỚI THIỆU
+    # -------------------------------------------------------------
+    tab_about_scroll = QScrollArea()
+    tab_about_scroll.setWidgetResizable(True)
+    tab_about_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    about_content = QWidget()
+    about_content.setObjectName("scrollContents")
+    v_about = QVBoxLayout(about_content)
+    v_about.setContentsMargins(0, 0, 8, 12)
+    v_about.setSpacing(14)
+
+    win.settings_sub_segment.currentIndexChanged.connect(win.settings_stack.setCurrentIndex)
 
     # ==================================================================
     # 1. GIAO DIỆN (SÁNG / TỐI / HỆ THỐNG)
@@ -77,7 +116,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
             win.theme_segment,
         )
     )
-    v.addWidget(theme_card)
+    v_general.addWidget(theme_card)
 
     # ==================================================================
     # 2. TẢI XUỐNG & LƯU TRỮ
@@ -153,15 +192,39 @@ def build_settings_page(win: MainWindow) -> QWidget:
     )
 
     win.fragments_spin = QSpinBox()
-    win.fragments_spin.setRange(1, 4)
+    win.fragments_spin.setRange(1, 8)
     win.fragments_spin.setValue(win.settings.fragment_connections)
     win.fragments_spin.setFixedWidth(72)
     win.fragments_spin.valueChanged.connect(win.on_fragments_changed)
     dl_card.body_layout.addWidget(
         SettingRow(
             "Kết nối phân mảnh mỗi video",
-            "Số luồng tải đồng thời cho một video (để 1 giúp tạm dừng/tiếp tục ổn định nhất)",
+            "Số luồng tải song song các mảnh của một video (1 – 8, khuyên dùng 4 để tăng tốc tối đa)",
             win.fragments_spin,
+        )
+    )
+
+    win.browser_cookie_combo = QComboBox()
+    win.browser_cookie_combo.setMinimumWidth(310)
+    for b_label, b_val in [
+        ("Tự động khi YouTube hỏi xác minh Bot (Khuyên dùng)", "auto"),
+        ("Không dùng", ""),
+        ("Firefox (Hoạt động cả khi đang mở trình duyệt)", "firefox"),
+        ("Microsoft Edge", "edge"),
+        ("Brave", "brave"),
+        ("Google Chrome", "chrome"),
+        ("Opera", "opera"),
+        ("Vivaldi", "vivaldi"),
+    ]:
+        win.browser_cookie_combo.addItem(b_label, b_val)
+    bc_idx = win.browser_cookie_combo.findData(getattr(win.settings, "cookies_from_browser", "auto"))
+    win.browser_cookie_combo.setCurrentIndex(bc_idx if bc_idx >= 0 else 0)
+    win.browser_cookie_combo.currentIndexChanged.connect(win.on_browser_cookie_changed)
+    dl_card.body_layout.addWidget(
+        SettingRow(
+            "Lấy Cookie từ trình duyệt",
+            "Tự động vượt lỗi 'Sign in to confirm you're not a bot' bằng tài khoản YouTube đã đăng nhập trên trình duyệt",
+            win.browser_cookie_combo,
         )
     )
 
@@ -170,10 +233,20 @@ def build_settings_page(win: MainWindow) -> QWidget:
     cookie_row.setContentsMargins(0, 0, 0, 0)
     cookie_row.setSpacing(6)
     win.cookie_edit = QLineEdit(win.settings.cookie_file)
-    win.cookie_edit.setMinimumWidth(260)
+    win.cookie_edit.setMinimumWidth(220)
     win.cookie_edit.setPlaceholderText("Đường dẫn cookies.txt (Netscape format - tùy chọn)")
     win.cookie_edit.editingFinished.connect(win.on_cookie_edited)
     cookie_row.addWidget(win.cookie_edit, 1)
+    cookie_row.addWidget(
+        tool_button(
+            "Dán cookies.txt...",
+            lambda: win.open_cookie_paste_dialog(),
+            "Dán trực tiếp nội dung cookies.txt vào phần mềm",
+            "secondaryAccentButton",
+            icon_name="clipboard-paste",
+            icon_size=14,
+        )
+    )
     cookie_row.addWidget(
         tool_button("Chọn...", lambda: win.browse_cookie(win.cookie_edit), "Chọn tệp cookies.txt")
     )
@@ -182,13 +255,13 @@ def build_settings_page(win: MainWindow) -> QWidget:
     )
     dl_card.body_layout.addWidget(
         SettingRow(
-            "Tệp cookies.txt",
-            "Dùng cho video giới hạn độ tuổi hoặc yêu cầu đăng nhập tài khoản",
+            "Tệp cookies.txt (Dán hoặc chọn tệp)",
+            "Ưu tiên dùng tệp cookies.txt để xác minh tài khoản hoặc tự dán khi YouTube chặn Bot",
             cookie_box,
         )
     )
 
-    v.addWidget(dl_card)
+    v_general.addWidget(dl_card)
 
     # ==================================================================
     # 3. MÃ HÓA VIDEO (GPU / CPU)
@@ -215,7 +288,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
             win.hw_accel_combo,
         )
     )
-    v.addWidget(codec_card)
+    v_general.addWidget(codec_card)
 
     # ==================================================================
     # 4. HỆ THỐNG & DỮ LIỆU
@@ -244,17 +317,6 @@ def build_settings_page(win: MainWindow) -> QWidget:
         )
     )
 
-    win.auto_update_check = QCheckBox("Tự kiểm tra")
-    win.auto_update_check.setChecked(win.settings.auto_check_updates)
-    win.auto_update_check.toggled.connect(win.on_system_flags_changed)
-    sys_card.body_layout.addWidget(
-        SettingRow(
-            "Tự động kiểm tra bản cập nhật mới",
-            "Kiểm tra phiên bản mới từ GitHub Releases khi khởi động ứng dụng",
-            win.auto_update_check,
-        )
-    )
-
     appdata_box = QWidget()
     appdata_row = QHBoxLayout(appdata_box)
     appdata_row.setContentsMargins(0, 0, 0, 0)
@@ -278,7 +340,8 @@ def build_settings_page(win: MainWindow) -> QWidget:
             appdata_box,
         )
     )
-    v.addWidget(sys_card)
+    v_general.addWidget(sys_card)
+    v_general.addStretch(1)
 
     # ==================================================================
     # 5. MÔI TRƯỜNG THỰC THI & CẬP NHẬT
@@ -299,9 +362,14 @@ def build_settings_page(win: MainWindow) -> QWidget:
     win.env_info_box.setFixedHeight(92)
     env_card.body_layout.addWidget(win.env_info_box)
 
-    def refresh_env_panel() -> None:
-        rep = win.check_environment(show_dialog=False)
-        missing_tools = [n for n in ("ffmpeg", "deno", "ejs") if not rep[n]]
+    _last_env_report: dict | None = None
+
+    def refresh_env_panel(force_recheck: bool = True) -> None:
+        nonlocal _last_env_report
+        if force_recheck or _last_env_report is None:
+            _last_env_report = win.check_environment(show_dialog=False)
+        rep = _last_env_report
+        missing_tools = [n for n in ("ffmpeg", "deno", "ejs") if not rep.get(n)]
         mode = theme_manager().mode
         if not missing_tools:
             win.env_status_badge.setText("● Đầy đủ thành phần")
@@ -310,30 +378,25 @@ def build_settings_page(win: MainWindow) -> QWidget:
             win.env_status_badge.setText("● Thiếu: " + ", ".join(missing_tools))
             win.env_status_badge.setStyleSheet(status_badge_qss("paused", mode))
         win.env_info_box.setPlainText(
-            f"• Lõi yt-dlp     : v{rep['yt_dlp_version']}   |   yt-dlp-ejs: {'Đã tích hợp' if rep['ejs'] else 'Chưa có'}\n"
-            f"• FFmpeg         : {rep['ffmpeg'] or 'CHƯA TÌM THẤY'}\n"
-            f"• FFprobe        : {rep['ffprobe'] or 'CHƯA TÌM THẤY'}\n"
-            f"• Deno Runtime   : {rep['deno'] or 'CHƯA TÌM THẤY'}"
+            f"• Lõi yt-dlp     : v{rep.get('yt_dlp_version', '')}   |   yt-dlp-ejs: {'Đã tích hợp' if rep.get('ejs') else 'Chưa có'}\n"
+            f"• FFmpeg         : {rep.get('ffmpeg') or 'CHƯA TÌM THẤY'}\n"
+            f"• FFprobe        : {rep.get('ffprobe') or 'CHƯA TÌM THẤY'}\n"
+            f"• Deno Runtime   : {rep.get('deno') or 'CHƯA TÌM THẤY'}"
         )
 
     win.refresh_env_panel = refresh_env_panel
-    refresh_env_panel()
-    theme_manager().changed.connect(lambda _m: refresh_env_panel())
+    theme_manager().changed.connect(lambda _m: refresh_env_panel(force_recheck=False))
 
-    manifest_box = QWidget()
-    manifest_row = QHBoxLayout(manifest_box)
-    manifest_row.setContentsMargins(0, 0, 0, 0)
-    manifest_row.setSpacing(6)
-    win.manifest_edit = QLineEdit(win.settings.update_manifest_url)
-    win.manifest_edit.setMinimumWidth(280)
-    win.manifest_edit.setPlaceholderText(f"Mặc định: https://github.com/{DEFAULT_GITHUB_REPO}")
-    win.manifest_edit.editingFinished.connect(win.on_manifest_edited)
-    manifest_row.addWidget(win.manifest_edit, 1)
+    win.auto_update_check = QCheckBox("Tự kiểm tra khi khởi động")
+    win.auto_update_check.setChecked(win.settings.auto_check_updates)
+    win.auto_update_check.toggled.connect(win.on_system_flags_changed)
+    win.auto_update_check_tab = win.auto_update_check
+
     env_card.body_layout.addWidget(
         SettingRow(
-            "Nguồn cập nhật (GitHub / Manifest URL)",
-            "Để trống để dùng kho phát hành mặc định",
-            manifest_box,
+            "Tự động kiểm tra bản cập nhật mới",
+            "Mặc định bật: tự động kiểm tra phiên bản mới từ GitHub Releases ngay khi mở ứng dụng",
+            win.auto_update_check,
         )
     )
 
@@ -344,24 +407,19 @@ def build_settings_page(win: MainWindow) -> QWidget:
     win.upd_status_lbl.setWordWrap(True)
     env_card.body_layout.addWidget(win.upd_status_lbl)
 
-    win.upd_pbar = QProgressBar()
-    win.upd_pbar.setRange(0, 100)
-    win.upd_pbar.setValue(0)
-    win.upd_pbar.setVisible(False)
-    win.upd_pbar.setStyleSheet(progress_bar_qss("downloading", theme_manager().mode))
-    env_card.body_layout.addWidget(win.upd_pbar)
-
-    win.upd_notes_box = QPlainTextEdit()
-    win.upd_notes_box.setReadOnly(True)
-    win.upd_notes_box.setFixedHeight(88)
-    win.upd_notes_box.setPlaceholderText("Ghi chú phát hành và tiến trình cập nhật sẽ hiển thị tại đây...")
-    env_card.body_layout.addWidget(win.upd_notes_box)
-
     upd_btn_row = QHBoxLayout()
     btn_recheck_env = tool_button(
         "Kiểm tra lại môi trường",
         refresh_env_panel,
         icon_name="refresh-cw",
+        icon_size=14,
+    )
+    btn_install_tools = tool_button(
+        "Tự động cài FFmpeg & Deno",
+        lambda: win.ensure_runtime_tools_async(force=False),
+        "Tự động tải và cài đặt FFmpeg + Deno vào thư mục dữ liệu ứng dụng",
+        "secondaryAccentButton",
+        icon_name="cpu",
         icon_size=14,
     )
     btn_ytdlp = tool_button(
@@ -390,39 +448,70 @@ def build_settings_page(win: MainWindow) -> QWidget:
     )
     btn_install.setEnabled(False)
     upd_btn_row.addWidget(btn_recheck_env)
+    upd_btn_row.addWidget(btn_install_tools)
     upd_btn_row.addWidget(btn_ytdlp)
     upd_btn_row.addWidget(btn_check)
     upd_btn_row.addWidget(btn_install)
     upd_btn_row.addStretch(1)
     env_card.body_layout.addLayout(upd_btn_row)
 
+    win.upd_pbar = QProgressBar()
+    win.upd_pbar.setRange(0, 100)
+    win.upd_pbar.setValue(0)
+    win.upd_pbar.setTextVisible(False)
+    win.upd_pbar.setFixedHeight(6)
+    win.upd_pbar.setVisible(False)
+    win.upd_pbar.setStyleSheet(progress_bar_qss("downloading", theme_manager().mode))
+    env_card.body_layout.addWidget(win.upd_pbar)
+
+    win.upd_notes_box = QPlainTextEdit()
+    win.upd_notes_box.setReadOnly(True)
+    win.upd_notes_box.setMinimumHeight(180)
+    win.upd_notes_box.setPlaceholderText("Ghi chú phát hành và tiến trình cập nhật sẽ hiển thị tại đây...")
+    env_card.body_layout.addWidget(win.upd_notes_box)
+
     latest_holder: dict[str, UpdateInfo | None] = {"info": None}
 
+    def apply_update_check_result(info: UpdateInfo) -> None:
+        latest_holder["info"] = info
+        win.upd_notes_box.setPlainText(
+            f"Phiên bản hiện tại: v{info.current_version}\n"
+            f"Phiên bản mới nhất: v{info.latest_version}\n"
+            f"Nguồn: {info.source}\n\n"
+            f"Ghi chú phát hành:\n{info.release_notes}"
+        )
+        win.upd_notes_box.moveCursor(QTextCursor.MoveOperation.Start)
+        if info.has_update:
+            win.upd_status_lbl.setText(
+                f"Có phiên bản mới v{info.latest_version}! Bấm 'Tải & Cập nhật ngay' để nâng cấp."
+            )
+            btn_install.setEnabled(bool(info.download_url or info.html_url))
+            if hasattr(win, "sidebar"):
+                win.sidebar.set_update_badge(info.latest_version)
+            if hasattr(win, "settings_sub_segment"):
+                win.settings_sub_segment.setItemBadgeDot(
+                    1, True, f"Có bản cập nhật mới v{info.latest_version}!"
+                )
+        else:
+            win.upd_status_lbl.setText(
+                f"Bạn đang sử dụng phiên bản mới nhất (v{info.current_version})."
+            )
+            btn_install.setEnabled(False)
+            if hasattr(win, "sidebar"):
+                win.sidebar.set_update_badge("")
+            if hasattr(win, "settings_sub_segment"):
+                win.settings_sub_segment.setItemBadgeDot(1, False)
+
+    win.apply_update_check_result = apply_update_check_result
+
     def do_check() -> None:
-        win.settings.update_manifest_url = win.manifest_edit.text().strip()
-        win.schedule_save()
         btn_check.setEnabled(False)
         win.upd_status_lbl.setText("Đang kết nối máy chủ kiểm tra phiên bản mới...")
-        w = UpdateCheckWorker(win.settings.update_manifest_url)
+        w = UpdateCheckWorker("")
 
         def on_checked(info: UpdateInfo) -> None:
             btn_check.setEnabled(True)
-            latest_holder["info"] = info
-            win.upd_notes_box.setPlainText(
-                f"Phiên bản hiện tại: v{info.current_version}\n"
-                f"Phiên bản mới nhất: v{info.latest_version}\n"
-                f"Nguồn: {info.source}\n\n"
-                f"Ghi chú phát hành:\n{info.release_notes}"
-            )
-            if info.has_update:
-                win.upd_status_lbl.setText(
-                    f"Có phiên bản mới v{info.latest_version}! Bấm 'Tải & Cập nhật ngay' để nâng cấp."
-                )
-                btn_install.setEnabled(bool(info.download_url or info.html_url))
-            else:
-                win.upd_status_lbl.setText(
-                    f"Bạn đang sử dụng phiên bản mới nhất (v{info.current_version})."
-                )
+            apply_update_check_result(info)
 
         def on_failed(err: str) -> None:
             btn_check.setEnabled(True)
@@ -446,8 +535,9 @@ def build_settings_page(win: MainWindow) -> QWidget:
         dl_worker = UpdateDownloadWorker(info)
 
         def on_prog(pct: float, msg: str) -> None:
-            win.upd_pbar.setValue(round(pct))
-            win.upd_status_lbl.setText(msg)
+            pct_int = round(pct)
+            win.upd_pbar.setValue(pct_int)
+            win.upd_status_lbl.setText(f"{msg} ({pct_int}%)" if "%" not in msg else msg)
 
         def on_staged(script_path: str) -> None:
             win.upd_pbar.setValue(100)
@@ -461,8 +551,11 @@ def build_settings_page(win: MainWindow) -> QWidget:
                 QMessageBox.StandardButton.Yes,
             )
             if ans == QMessageBox.StandardButton.Yes:
-                launch_staged_updater(Path(script_path))
-                win.close()
+                if hasattr(win, "trigger_update_and_close"):
+                    win.trigger_update_and_close(Path(script_path))
+                else:
+                    launch_staged_updater(Path(script_path))
+                    win.close()
 
         def on_err(err: str) -> None:
             btn_install.setEnabled(True)
@@ -492,7 +585,8 @@ def build_settings_page(win: MainWindow) -> QWidget:
     btn_install.clicked.connect(do_install)
     btn_ytdlp.clicked.connect(do_ytdlp_update)
 
-    v.addWidget(env_card)
+    v_update.addWidget(env_card)
+    v_update.addStretch(1)
 
     # ==================================================================
     # 6. GIỚI THIỆU PHẦN MỀM
@@ -545,9 +639,17 @@ def build_settings_page(win: MainWindow) -> QWidget:
     about_btns.addStretch(1)
     about_card.body_layout.addLayout(about_btns)
 
-    v.addWidget(about_card)
-    v.addStretch(1)
+    v_about.addWidget(about_card)
+    v_about.addStretch(1)
 
-    scroll.setWidget(content)
-    outer_v.addWidget(scroll, 1)
+    # Wrap contents into scroll areas
+    tab_general_scroll.setWidget(general_content)
+    tab_update_scroll.setWidget(update_content)
+    tab_about_scroll.setWidget(about_content)
+
+    win.settings_stack.addWidget(tab_general_scroll)
+    win.settings_stack.addWidget(tab_update_scroll)
+    win.settings_stack.addWidget(tab_about_scroll)
+
+    outer_v.addWidget(win.settings_stack, 1)
     return outer_page

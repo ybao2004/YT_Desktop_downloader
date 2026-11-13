@@ -8,7 +8,14 @@ from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
 
 from .engine import DownloadCancelled, download_media, inspect_url, transcode_existing_job
 from .hw_monitor import HardwareMonitor
-from .updater import UpdateInfo, check_for_updates, download_update_package, stage_portable_update, update_ytdlp_core
+from .updater import (
+    UpdateInfo,
+    check_for_updates,
+    download_update_package,
+    ensure_runtime_binaries,
+    stage_portable_update,
+    update_ytdlp_core,
+)
 
 
 class AnalyzeSignals(QObject):
@@ -17,17 +24,33 @@ class AnalyzeSignals(QObject):
 
 
 class AnalyzeWorker(QRunnable):
-    def __init__(self, key: str, url: str, playlist: bool, cookie_file: str = ""):
+    def __init__(
+        self,
+        key: str,
+        url: str,
+        playlist: bool,
+        cookie_file: str = "",
+        cookies_from_browser: str = "auto",
+    ):
         super().__init__()
         self.key = key
         self.url = url
         self.playlist = playlist
         self.cookie_file = cookie_file
+        self.cookies_from_browser = cookies_from_browser
         self.signals = AnalyzeSignals()
 
     def run(self):
         try:
-            self.signals.ready.emit(self.key, inspect_url(self.url, self.playlist, cookie_file=self.cookie_file))
+            self.signals.ready.emit(
+                self.key,
+                inspect_url(
+                    self.url,
+                    self.playlist,
+                    cookie_file=self.cookie_file,
+                    cookies_from_browser=self.cookies_from_browser,
+                ),
+            )
         except Exception as exc:
             self.signals.failed.emit(self.key, str(exc))
 
@@ -214,3 +237,26 @@ class YtDlpUpdateWorker(QRunnable):
     def run(self):
         ok, msg = update_ytdlp_core()
         self.signals.ytdlp_done.emit(ok, msg)
+
+
+class RuntimeBootstrapSignals(QObject):
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)
+
+
+class RuntimeBootstrapWorker(QRunnable):
+    def __init__(self, force: bool = False):
+        super().__init__()
+        self.force = force
+        self.signals = RuntimeBootstrapSignals()
+
+    def run(self):
+        try:
+            ok, msg = ensure_runtime_binaries(
+                progress_cb=lambda m: self.signals.progress.emit(str(m)),
+                force=self.force,
+            )
+            self.signals.finished.emit(ok, msg)
+        except Exception as exc:
+            self.signals.finished.emit(False, str(exc))
+

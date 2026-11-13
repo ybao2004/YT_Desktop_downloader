@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.agents/
+graphify-out/
+scratch/
+dist/
+build/
+updates/
+data/
+portable.flag
+*.spec
+!YouTubeDesktopDownloader.spec
+*.part
+*.ytdl
+

@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 APP_NAME = "YouTube Desktop Downloader"
-APP_VERSION = "1.0.0"
+APP_VERSION = "3.2.1"
 DEFAULT_GITHUB_REPO = "ybao2004/YT_Desktop_downloader"
 DEFAULT_UPDATE_MANIFEST_URL = "https://api.github.com/repos/ybao2004/YT_Desktop_downloader/releases/latest"
 

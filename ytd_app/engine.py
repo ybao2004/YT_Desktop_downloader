@@ -11,10 +11,68 @@ import shutil
 import subprocess
 import threading
 import time
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import yt_dlp
+class _LazyYtDlpProxy:
+    """Proxy object that delays importing yt_dlp until any attribute is accessed or patched."""
+    def __getattr__(self, name: str):
+        import yt_dlp as _real
+        globals()["yt_dlp"] = _real
+        return getattr(_real, name)
+
+    def __setattr__(self, name: str, value):
+        import yt_dlp as _real
+        globals()["yt_dlp"] = _real
+        setattr(_real, name, value)
+
+    def __delattr__(self, name: str):
+        import yt_dlp as _real
+        globals()["yt_dlp"] = _real
+        try:
+            delattr(_real, name)
+        except AttributeError:
+            pass
+
+
+yt_dlp = _LazyYtDlpProxy()
+
+
+def _get_yt_dlp():
+    """Lazily load the heavy yt_dlp library only when inspection or downloading actually begins."""
+    global yt_dlp
+    if isinstance(yt_dlp, _LazyYtDlpProxy):
+        import yt_dlp as _imported
+        yt_dlp = _imported
+    return yt_dlp
+
+
+def _fast_yt_dlp_version() -> str:
+    """Retrieve yt-dlp version in milliseconds without triggering yt_dlp/__init__.py."""
+    if yt_dlp is not None and hasattr(yt_dlp, "version"):
+        return getattr(yt_dlp.version, "__version__", "unknown")
+    if "yt_dlp" in sys.modules and hasattr(sys.modules["yt_dlp"], "version"):
+        return getattr(sys.modules["yt_dlp"].version, "__version__", "unknown")
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("yt-dlp")
+    except Exception:
+        pass
+    try:
+        spec = importlib.util.find_spec("yt_dlp.version")
+        if spec and spec.origin and Path(spec.origin).is_file():
+            content = Path(spec.origin).read_text(encoding="utf-8", errors="ignore")
+            m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)['\"]", content)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    try:
+        return _get_yt_dlp().version.__version__
+    except Exception:
+        return "unknown"
+
 
 from .hw_monitor import probe_working_encoders
 from .models import Job, Settings
@@ -76,6 +134,67 @@ if os.name == "nt" and getattr(os.replace, "__name__", "") != "_win_replace_wrap
 
     os.replace = _win_replace_wrapper  # type: ignore[assignment]
     os.rename = _win_rename_wrapper    # type: ignore[assignment]
+
+
+def send_to_trash(filepath: str | Path) -> bool:
+    """Move a file or directory to the Windows Recycle Bin (with undo capability).
+    Falls back to normal unlink/rmtree on non-Windows or if the shell API call fails.
+    Returns True if successfully removed or moved to trash, False otherwise.
+    """
+    p = Path(filepath)
+    if not p.exists():
+        return False
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class _SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("wFunc", wintypes.UINT),
+                    ("pFrom", wintypes.LPCWSTR),
+                    ("pTo", wintypes.LPCWSTR),
+                    ("fFlags", wintypes.WORD),
+                    ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", wintypes.LPVOID),
+                    ("lpszProgressTitle", wintypes.LPCWSTR),
+                ]
+
+            FO_DELETE = 0x0003
+            FOF_ALLOWUNDO = 0x0040
+            FOF_NOCONFIRMATION = 0x0010
+            FOF_SILENT = 0x0004
+            FOF_NOERRORUI = 0x0400
+
+            abs_path = str(p.resolve()) + "\0\0"
+            fileop = _SHFILEOPSTRUCTW()
+            fileop.hwnd = None
+            fileop.wFunc = FO_DELETE
+            fileop.pFrom = abs_path
+            fileop.pTo = None
+            fileop.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+            fileop.fAnyOperationsAborted = False
+            fileop.hNameMappings = None
+            fileop.lpszProgressTitle = None
+
+            res = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(fileop))
+            if res == 0 and not fileop.fAnyOperationsAborted and not p.exists():
+                return True
+        except Exception:
+            pass
+
+    # Fallback to standard removal if SHFileOperationW is unavailable, fails, or on non-Windows
+    try:
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink(missing_ok=True)
+        return not p.exists()
+    except Exception:
+        return False
+
 
 
 class DownloadCancelled(Exception):
@@ -153,6 +272,70 @@ def is_youtube_url(url: str) -> bool:
         return False
 
 
+_URL_TOKEN_RE = re.compile(
+    r"(?:https?://[^\s,;<>\[\]\"'()]+|(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/[^\s,;<>\[\]\"'()]+)",
+    re.IGNORECASE,
+)
+
+
+def _is_meaningful_youtube_link(url: str) -> bool:
+    if not is_youtube_url(url):
+        return False
+    if extract_youtube_video_id(url):
+        return True
+    parsed = urlparse(url.strip())
+    path = (parsed.path or "").strip("/")
+    qs = parse_qs(parsed.query)
+    if "list" in qs and qs["list"]:
+        return True
+    if path and path.lower() not in ("", "watch", "playlist"):
+        return True
+    return False
+
+
+def extract_youtube_urls(raw_text: str) -> tuple[list[str], int, int]:
+    """Extract and deduplicate valid YouTube URLs from arbitrary single/multi-line text.
+
+    Returns:
+        (valid_unique_urls, duplicate_count, invalid_count)
+    """
+    if not raw_text or not raw_text.strip():
+        return [], 0, 0
+
+    valid_urls: list[str] = []
+    seen_keys: set[str] = set()
+    duplicate_count = 0
+    invalid_count = 0
+
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        matches = _URL_TOKEN_RE.findall(line)
+        if not matches:
+            invalid_count += 1
+            continue
+
+        line_valid_found = 0
+        for token in matches:
+            cleaned = token.rstrip(".,;!?)]}'\"")
+            if not cleaned.lower().startswith(("http://", "https://")):
+                cleaned = "https://" + cleaned
+            if not _is_meaningful_youtube_link(cleaned):
+                invalid_count += 1
+                continue
+            line_valid_found += 1
+            vid = extract_youtube_video_id(cleaned)
+            dedup_key = f"vid:{vid}" if vid else cleaned
+            if dedup_key in seen_keys:
+                duplicate_count += 1
+            else:
+                seen_keys.add(dedup_key)
+                valid_urls.append(cleaned)
+
+    return valid_urls, duplicate_count, invalid_count
+
+
 def friendly_size(size) -> str:
     try:
         size = float(size)
@@ -212,10 +395,13 @@ def build_format(job: Job) -> str:
       then fall back to any stream at that resolution (FFmpeg will transcode afterward if needed).
     - If quality is 'best', prefer the highest resolution available, while preferring the target codec if tied
       (reinforced via `format_sort` in `download_media`).
+    - If `job.mute_audio` is True, select video-only (`bv*`) streams without merging audio (`+ba`).
     """
+    mute = bool(getattr(job, "mute_audio", False))
+
     if job.format_id:
         fmt = _safe_format_id(job.format_id)
-        if job.mode == "audio" or job.format_has_audio:
+        if job.mode == "audio" or job.format_has_audio or mute:
             return fmt
         ext = job.format_ext
         if ext == "mp4" or job.container == "mp4":
@@ -244,6 +430,35 @@ def build_format(job: Job) -> str:
     elif target_codec == "vp9":
         vcodec_filter = "[vcodec^=vp9]"
 
+    if mute:
+        if target_codec == "auto" or not vcodec_filter:
+            if job.container == "mp4":
+                return f"bv*[ext=mp4]{limiter}/b[ext=mp4]{limiter}/bv*{limiter}/b{limiter}"
+            if job.container == "webm":
+                return f"bv*[ext=webm]{limiter}/b[ext=webm]{limiter}/bv*{limiter}/b{limiter}"
+            return f"bv*{limiter}/b{limiter}"
+
+        if job.container == "mp4":
+            if limiter:
+                return (
+                    f"bv*{vcodec_filter}{limiter}/"
+                    f"bv*[ext=mp4]{limiter}/"
+                    f"bv*{limiter}/"
+                    f"b[ext=mp4]{limiter}/b{limiter}"
+                )
+            return "bv*[ext=mp4]/bv*/b"
+        if job.container == "webm":
+            if limiter:
+                return (
+                    f"bv*{vcodec_filter}{limiter}/"
+                    f"bv*[ext=webm]{limiter}/"
+                    f"bv*{limiter}/b{limiter}"
+                )
+            return "bv*[ext=webm]/bv*/b"
+        if limiter:
+            return f"bv*{vcodec_filter}{limiter}/bv*{limiter}/b{limiter}"
+        return "bv*/b"
+
     # When user leaves codec as 'auto' (or legacy behavior):
     if target_codec == "auto" or not vcodec_filter:
         if job.container == "mp4":
@@ -261,8 +476,8 @@ def build_format(job: Job) -> str:
                 f"b[ext=mp4]{limiter}/b{limiter}"
             )
         return (
-            f"bv*[ext=mp4]+ba[ext=m4a]/"
-            f"bv*+ba/b"
+            "bv*[ext=mp4]+ba[ext=m4a]/"
+            "bv*+ba/b"
         )
     if job.container == "webm":
         if limiter:
@@ -275,7 +490,7 @@ def build_format(job: Job) -> str:
 
     if limiter:
         return f"bv*{vcodec_filter}{limiter}+ba/bv*{limiter}+ba/b{limiter}"
-    return f"bv*+ba/b"
+    return "bv*+ba/b"
 
 
 def metadata_view(info: dict) -> dict:
@@ -325,7 +540,104 @@ def _entry_url(entry: dict) -> str:
     return ""
 
 
-def inspect_url(url: str, playlist: bool = False, max_entries: int = 150, cookie_file: str = "") -> dict:
+_SUPPORTED_COOKIE_BROWSERS = ("firefox", "edge", "brave", "chrome", "opera", "vivaldi")
+
+
+def _is_bot_auth_error(exc: Exception) -> bool:
+    msg = str(exc or "").lower()
+    return (
+        "not a bot" in msg
+        or "sign in to confirm" in msg
+        or "--cookies-from-browser" in msg
+        or "confirm your age" in msg
+    )
+
+
+def _run_ytdlp_extract_with_fallback(
+    base_options: dict,
+    url: str,
+    *,
+    download: bool,
+    cookies_from_browser: str = "auto",
+    log=None,
+) -> dict:
+    """Run `yt_dlp.YoutubeDL(options).extract_info(url, download=download)` with automatic
+    multi-stage fallback if YouTube triggers a 'Sign in to confirm you're not a bot' check:
+      1. Try initial `base_options` (which already includes `cookiefile` or explicit `cookiesfrombrowser` if set).
+      2. On bot-check error, retry with embedded/TV Innertube clients (`web_embedded`, `mweb`, `tv`).
+      3. If still blocked and no `cookiefile` is set, try browser cookies (`firefox`, `edge`, `brave`, `chrome`).
+    """
+    browser_pref = (cookies_from_browser or "").strip().lower()
+    initial_opts = dict(base_options)
+    if not initial_opts.get("cookiefile") and browser_pref in _SUPPORTED_COOKIE_BROWSERS:
+        initial_opts["cookiesfrombrowser"] = (browser_pref,)
+
+    ytd = _get_yt_dlp()
+    try:
+        with ytd.YoutubeDL(initial_opts) as ydl:
+            res = ydl.extract_info(url, download=download)
+            if isinstance(res, dict):
+                return res
+            raise RuntimeError("Không nhận được dữ liệu phản hồi từ YouTube")
+    except Exception as first_exc:
+        if not _is_bot_auth_error(first_exc):
+            raise
+
+        if log:
+            log("YouTube yêu cầu xác minh chống Bot — đang tự động thử luồng dự phòng (Embedded/TV Client)...")
+
+        # Fallback Stage 1: Embedded / TV player clients
+        try:
+            alt_opts = dict(initial_opts)
+            ext_args = dict(alt_opts.get("extractor_args") or {})
+            yt_args = dict(ext_args.get("youtube") or {})
+            yt_args["player_client"] = ["web_embedded", "tv", "mweb"]
+            ext_args["youtube"] = yt_args
+            alt_opts["extractor_args"] = ext_args
+            with ytd.YoutubeDL(alt_opts) as ydl:
+                res = ydl.extract_info(url, download=download)
+                if isinstance(res, dict):
+                    return res
+        except Exception as alt_exc:
+            if not _is_bot_auth_error(alt_exc):
+                raise
+
+        # Fallback Stage 2: Automatic browser cookies if allowed
+        if not initial_opts.get("cookiefile") and browser_pref != "":
+            candidates = (
+                [browser_pref]
+                if browser_pref in _SUPPORTED_COOKIE_BROWSERS
+                else ["firefox", "edge", "brave", "chrome"]
+            )
+            for b_name in candidates:
+                try:
+                    if log:
+                        log(f"Đang thử tự động xác thực Cookie từ trình duyệt {b_name.title()}...")
+                    b_opts = dict(base_options)
+                    b_opts["cookiesfrombrowser"] = (b_name,)
+                    with ytd.YoutubeDL(b_opts) as ydl:
+                        res = ydl.extract_info(url, download=download)
+                        if isinstance(res, dict):
+                            if log:
+                                log(f"Xác thực thành công bằng Cookie trình duyệt {b_name.title()}!")
+                            return res
+                except Exception:
+                    continue
+
+        raise RuntimeError(
+            "YouTube yêu cầu xác minh chống Bot trên mạng này. "
+            "Cách khắc phục: Mở Cài đặt → chọn 'Lấy Cookie từ trình duyệt' (ưu tiên Firefox, hoặc đóng Edge/Chrome trước khi tải) "
+            "hoặc nạp tệp cookies.txt (Netscape)."
+        ) from first_exc
+
+
+def inspect_url(
+    url: str,
+    playlist: bool = False,
+    max_entries: int = 150,
+    cookie_file: str = "",
+    cookies_from_browser: str = "auto",
+) -> dict:
     if not is_youtube_url(url):
         raise ValueError("Chỉ chấp nhận URL YouTube hợp lệ (https://youtube.com hoặc youtu.be)")
     options: dict = {
@@ -342,8 +654,12 @@ def inspect_url(url: str, playlist: bool = False, max_entries: int = 150, cookie
         c_path = Path(cookie_file).expanduser()
         if c_path.is_file():
             options["cookiefile"] = str(c_path)
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=False)
+    info = _run_ytdlp_extract_with_fallback(
+        options,
+        url,
+        download=False,
+        cookies_from_browser=cookies_from_browser,
+    )
     if not isinstance(info, dict):
         raise ValueError("YouTube không trả về dữ liệu video")
     if info.get("_type") in ("playlist", "multi_video") or (playlist and "entries" in info):
@@ -390,16 +706,49 @@ class SignalLogger:
         self.report("Lỗi: " + str(msg))
 
 
+def _format_fps_str(raw_fps: str | float | int) -> str:
+    try:
+        s = str(raw_fps or "").strip()
+        if not s or s in ("0/0", "0", "N/A"):
+            return ""
+        if "/" in s:
+            num_s, den_s = s.split("/", 1)
+            den = float(den_s)
+            if den <= 0:
+                return ""
+            val = float(num_s) / den
+        else:
+            val = float(s)
+        if val <= 0 or val > 1000:
+            return ""
+        rounded = round(val)
+        if abs(val - rounded) < 0.08:
+            return f"{rounded}fps"
+        return f"{val:.2f}fps"
+    except Exception:
+        return ""
+
+
 def probe_media_info(filepath: Path) -> dict[str, str | float]:
-    """Inspect actual video codec, audio codec, and duration (in seconds) using ffprobe,
-    with automatic fallback to `ffmpeg -i` stderr parsing if ffprobe is unavailable or incomplete.
+    """Inspect actual video codec, audio codec, duration (seconds), resolution, fps, and bitrate
+    using ffprobe, with automatic fallback to `ffmpeg -i` stderr parsing if ffprobe is unavailable.
     """
     if not filepath.is_file():
-        return {"video_codec": "", "audio_codec": "", "duration": 0.0}
+        return {
+            "video_codec": "",
+            "audio_codec": "",
+            "duration": 0.0,
+            "resolution": "",
+            "fps": "",
+            "bitrate": "",
+        }
 
     vcodec = ""
     acodec = ""
     duration = 0.0
+    resolution = ""
+    fps_str = ""
+    bitrate_str = ""
 
     ffprobe = shutil.which("ffprobe")
     if ffprobe:
@@ -410,7 +759,7 @@ def probe_media_info(filepath: Path) -> dict[str, str | float]:
                     "-v",
                     "error",
                     "-show_entries",
-                    "stream=codec_type,codec_name:format=duration",
+                    "stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate:format=duration,bit_rate",
                     "-of",
                     "json",
                     str(filepath),
@@ -423,21 +772,46 @@ def probe_media_info(filepath: Path) -> dict[str, str | float]:
             )
             if res.returncode == 0 and res.stdout:
                 data = json.loads(res.stdout)
+                v_br = 0
+                a_br = 0
                 for stream in data.get("streams") or []:
                     stype = stream.get("codec_type")
                     sname = (stream.get("codec_name") or "").lower()
                     if stype == "video" and not vcodec:
                         vcodec = sname
+                        w = int(stream.get("width") or 0)
+                        h = int(stream.get("height") or 0)
+                        if w > 0 and h > 0:
+                            resolution = f"{w}x{h}"
+                        fps_str = _format_fps_str(stream.get("avg_frame_rate") or stream.get("r_frame_rate") or "")
+                        if not fps_str:
+                            fps_str = _format_fps_str(stream.get("r_frame_rate") or "")
+                        try:
+                            v_br = int(stream.get("bit_rate") or 0)
+                        except Exception:
+                            pass
                     elif stype == "audio" and not acodec:
                         acodec = sname
-                dur_raw = (data.get("format") or {}).get("duration")
+                        try:
+                            a_br = int(stream.get("bit_rate") or 0)
+                        except Exception:
+                            pass
+                fmt_obj = data.get("format") or {}
+                dur_raw = fmt_obj.get("duration")
                 if dur_raw and str(dur_raw) != "N/A":
                     duration = float(dur_raw)
+                try:
+                    fmt_br = int(fmt_obj.get("bit_rate") or 0)
+                except Exception:
+                    fmt_br = 0
+                best_bps = fmt_br or (v_br + a_br) or v_br or a_br
+                if best_bps > 0:
+                    bitrate_str = f"{max(1, round(best_bps / 1000))} kbps"
         except Exception:
             pass
 
-    # Fallback to `ffmpeg -i` if ffprobe was missing or didn't report codec/duration
-    if not vcodec or duration <= 0.0:
+    # Fallback to `ffmpeg -i` if ffprobe was missing or didn't report codec/duration/resolution
+    if not vcodec or duration <= 0.0 or not resolution or not bitrate_str:
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg:
             try:
@@ -456,6 +830,14 @@ def probe_media_info(filepath: Path) -> dict[str, str | float]:
                     m_v = re.search(r"Stream #\d+:\d+.*?Video:\s*([a-zA-Z0-9_]+)", text)
                     if m_v:
                         vcodec = m_v.group(1).lower()
+                if not resolution:
+                    m_res = re.search(r"Stream #\d+:\d+.*?Video:.*?,\s*(\d{2,5}x\d{2,5})\b", text)
+                    if m_res:
+                        resolution = m_res.group(1)
+                if not fps_str:
+                    m_fps = re.search(r"Stream #\d+:\d+.*?Video:.*?,\s*(\d+(?:\.\d+)?)\s*fps\b", text)
+                    if m_fps:
+                        fps_str = _format_fps_str(m_fps.group(1))
                 if not acodec:
                     m_a = re.search(r"Stream #\d+:\d+.*?Audio:\s*([a-zA-Z0-9_]+)", text)
                     if m_a:
@@ -464,10 +846,21 @@ def probe_media_info(filepath: Path) -> dict[str, str | float]:
                     m_d = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
                     if m_d:
                         duration = int(m_d.group(1)) * 3600 + int(m_d.group(2)) * 60 + float(m_d.group(3))
+                if not bitrate_str:
+                    m_br = re.search(r"bitrate:\s*(\d+)\s*kb/s", text, re.IGNORECASE)
+                    if m_br:
+                        bitrate_str = f"{int(m_br.group(1))} kbps"
             except Exception:
                 pass
 
-    return {"video_codec": vcodec, "audio_codec": acodec, "duration": duration}
+    return {
+        "video_codec": vcodec,
+        "audio_codec": acodec,
+        "duration": duration,
+        "resolution": resolution,
+        "fps": fps_str,
+        "bitrate": bitrate_str,
+    }
 
 
 def get_cached_encoders() -> dict[str, list[str]]:
@@ -560,6 +953,12 @@ def ensure_video_codec(
     actual_vcodec = str(info.get("video_codec") or known_vcodec or "").lower()
     actual_acodec = str(info.get("audio_codec") or "").lower()
     duration = float(info.get("duration") or 0.0) or float(known_duration or 0.0)
+    if info.get("resolution"):
+        job.detected_resolution = str(info["resolution"])
+    if info.get("fps"):
+        job.detected_fps = str(info["fps"])
+    if info.get("bitrate"):
+        job.detected_bitrate = str(info["bitrate"])
 
     target = (job.video_codec or "auto").lower()
     start_sec, end_sec = clip_range
@@ -576,10 +975,24 @@ def ensure_video_codec(
         actual_vcodec == name or actual_vcodec.startswith(name + ".")
         for name in accepted_names
     )
+    mute = bool(getattr(job, "mute_audio", False))
+    has_audio_stream = actual_acodec not in ("", "none")
 
     if codec_matches and not force_transcode:
-        if needs_trim:
-            trimmed = _run_ffmpeg_trim_only(filepath, start_sec, end_sec, duration, control, progress, log)
+        if needs_trim or (mute and has_audio_stream):
+            trimmed = _run_ffmpeg_trim_only(
+                filepath,
+                start_sec,
+                end_sec,
+                duration,
+                control,
+                progress,
+                log,
+                strip_audio=mute,
+            )
+            post_info = probe_media_info(trimmed)
+            if post_info.get("bitrate"):
+                job.detected_bitrate = str(post_info["bitrate"])
             return trimmed, normalize_codec_label(actual_vcodec or target)
         return filepath, normalize_codec_label(actual_vcodec or target)
 
@@ -638,8 +1051,10 @@ def ensure_video_codec(
         cmd.extend(v_args)
         cmd.extend(["-map_metadata", "0"])
 
-        # Audio stream compatibility
-        if target_ext == "mp4" and actual_acodec not in {"aac", "mp3", "alac", ""}:
+        # Audio stream compatibility (or strip audio when mute_audio is enabled)
+        if mute:
+            cmd.append("-an")
+        elif target_ext == "mp4" and actual_acodec not in {"aac", "mp3", "alac", ""}:
             cmd.extend(["-c:a", "aac", "-b:a", "192k"])
         else:
             cmd.extend(["-c:a", "copy"])
@@ -664,6 +1079,13 @@ def ensure_video_codec(
                 os.replace(temp_out, out_path)
             except OSError:
                 out_path = temp_out
+            post_info = probe_media_info(out_path)
+            if post_info.get("resolution"):
+                job.detected_resolution = str(post_info["resolution"])
+            if post_info.get("fps"):
+                job.detected_fps = str(post_info["fps"])
+            if post_info.get("bitrate"):
+                job.detected_bitrate = str(post_info["bitrate"])
             log(f"Hoàn tất chuyển đổi sang {codec_display} ({enc_name}).")
             return out_path, codec_display
         last_error = err_text
@@ -685,6 +1107,8 @@ def _run_ffmpeg_trim_only(
     control,
     progress,
     log,
+    *,
+    strip_audio: bool = False,
 ) -> Path:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -698,12 +1122,17 @@ def _run_ffmpeg_trim_only(
         clip_dur = end_sec - (start_sec or 0.0)
         if clip_dur > 0:
             cmd.extend(["-t", f"{clip_dur:.2f}"])
-    cmd.extend(["-c", "copy", "-progress", "pipe:1", "-nostats", str(temp_out)])
+    if strip_audio:
+        cmd.extend(["-c:v", "copy", "-an"])
+    else:
+        cmd.extend(["-c", "copy"])
+    cmd.extend(["-progress", "pipe:1", "-nostats", str(temp_out)])
     eff_dur = (end_sec - (start_sec or 0.0)) if end_sec else max(1.0, duration - (start_sec or 0.0))
-    ok, _ = _execute_ffmpeg_with_progress(cmd, eff_dur, "Đang cắt đoạn", control, progress, temp_out)
+    stage_lbl = "Đang xóa âm thanh" if (strip_audio and start_sec is None and end_sec is None) else "Đang cắt đoạn"
+    ok, _ = _execute_ffmpeg_with_progress(cmd, eff_dur, stage_lbl, control, progress, temp_out)
     if ok and temp_out.is_file() and temp_out.stat().st_size > 0:
         os.replace(temp_out, filepath)
-        log("Đã cắt đoạn media thành công.")
+        log("Đã xóa âm thanh khỏi video thành công." if strip_audio else "Đã cắt đoạn media thành công.")
     elif temp_out.exists():
         try:
             temp_out.unlink()
@@ -906,11 +1335,31 @@ def _execute_ffmpeg_with_progress(
 
 
 def transcode_existing_job(job: Job, target_codec: str, settings: Settings, control, progress, log) -> str:
-    """Transcode an already-downloaded video file on disk to `target_codec` (h264, h265, av1, vp9)."""
+    """Transcode an already-downloaded video file on disk to `target_codec` (h264, h265, av1, vp9),
+    or strip its audio track in-place when `target_codec == 'mute'`.
+    """
     if not job.filepath or not Path(job.filepath).is_file():
-        raise ValueError("Không tìm thấy file gốc trên ổ đĩa để chuyển đổi Codec")
-    job.video_codec = target_codec
+        raise ValueError("Không tìm thấy file gốc trên ổ đĩa để xử lý")
     src_path = Path(job.filepath)
+    if target_codec == "mute":
+        info = probe_media_info(src_path)
+        dur = float(info.get("duration") or 0.0)
+        out_path = _run_ffmpeg_trim_only(
+            src_path,
+            None,
+            None,
+            dur,
+            control,
+            progress,
+            log,
+            strip_audio=True,
+        )
+        job.mute_audio = True
+        post_info = probe_media_info(out_path)
+        if post_info.get("bitrate"):
+            job.detected_bitrate = str(post_info["bitrate"])
+        return str(out_path)
+    job.video_codec = target_codec
     out_path, codec_label = ensure_video_codec(
         src_path,
         job,
@@ -1007,7 +1456,9 @@ def download_media(job: Job, settings: Settings, control, progress, log) -> str:
         "noprogress": True,
         "retries": 8,
         "fragment_retries": 8,
-        "concurrent_fragment_downloads": settings.fragment_connections,
+        "concurrent_fragment_downloads": max(1, min(8, int(getattr(settings, "fragment_connections", 4) or 4))),
+        "buffersize": 1024 * 64,
+        "http_chunk_size": 10485760,
         "socket_timeout": 20,
         "logger": SignalLogger(log),
         "progress_hooks": [progress_hook],
@@ -1015,6 +1466,13 @@ def download_media(job: Job, settings: Settings, control, progress, log) -> str:
     }
 
     ffmpeg_bin = shutil.which("ffmpeg")
+    deno_bin = shutil.which("deno")
+    if not ffmpeg_bin or not deno_bin:
+        from .version import is_frozen
+        if is_frozen():
+            from .updater import ensure_runtime_binaries
+            ensure_runtime_binaries(progress_cb=log, force=False)
+            ffmpeg_bin = shutil.which("ffmpeg")
     if ffmpeg_bin:
         options["ffmpeg_location"] = str(Path(ffmpeg_bin).resolve().parent)
 
@@ -1029,7 +1487,10 @@ def download_media(job: Job, settings: Settings, control, progress, log) -> str:
             "vp9": "vp9",
         }
         if target_c in sort_map:
-            options["format_sort"] = ["res", "fps", f"vcodec:{sort_map[target_c]}", "acodec:m4a"]
+            if getattr(job, "mute_audio", False):
+                options["format_sort"] = ["res", "fps", f"vcodec:{sort_map[target_c]}"]
+            else:
+                options["format_sort"] = ["res", "fps", f"vcodec:{sort_map[target_c]}", "acodec:m4a"]
 
     if settings.cookie_file:
         cookie_path = Path(settings.cookie_file).expanduser()
@@ -1067,17 +1528,22 @@ def download_media(job: Job, settings: Settings, control, progress, log) -> str:
         options["postprocessors"] = postprocessors
 
     checkpoint()
-    with yt_dlp.YoutubeDL(options) as ydl:
-        data = ydl.extract_info(job.url, download=True)
-        if not isinstance(data, dict):
-            raise RuntimeError("Không nhận được thông tin file sau khi tải")
-        meta_update: dict = {"status": "processing", "progress": 99.2}
-        if data.get("title"):
-            meta_update["title"] = str(data["title"])
-        if data.get("thumbnail"):
-            meta_update["thumbnail_url"] = str(data["thumbnail"])
-        progress(meta_update)
-        output = find_output_file(data, path, job)
+    data = _run_ytdlp_extract_with_fallback(
+        options,
+        job.url,
+        download=True,
+        cookies_from_browser=getattr(settings, "cookies_from_browser", "auto"),
+        log=log,
+    )
+    if not isinstance(data, dict):
+        raise RuntimeError("Không nhận được thông tin file sau khi tải")
+    meta_update: dict = {"status": "processing", "progress": 99.2}
+    if data.get("title"):
+        meta_update["title"] = str(data["title"])
+    if data.get("thumbnail"):
+        meta_update["thumbnail_url"] = str(data["thumbnail"])
+    progress(meta_update)
+    output = find_output_file(data, path, job)
 
     checkpoint()
     if output is None:
@@ -1085,11 +1551,30 @@ def download_media(job: Job, settings: Settings, control, progress, log) -> str:
 
     known_dur = float(data.get("duration") or 0.0)
     known_vc = str(data.get("vcodec") or "")
-    if known_vc in ("none", ""):
-        for req_dl in data.get("requested_downloads") or []:
-            if isinstance(req_dl, dict) and req_dl.get("vcodec") not in (None, "none", ""):
+    w_info = int(data.get("width") or 0)
+    h_info = int(data.get("height") or 0)
+    fps_info = data.get("fps")
+    tbr_info = data.get("tbr") or data.get("vbr") or data.get("abr")
+    for req_dl in data.get("requested_downloads") or []:
+        if isinstance(req_dl, dict):
+            if known_vc in ("none", "") and req_dl.get("vcodec") not in (None, "none", ""):
                 known_vc = str(req_dl["vcodec"])
-                break
+            if (w_info <= 0 or h_info <= 0) and req_dl.get("width") and req_dl.get("height"):
+                w_info = int(req_dl["width"])
+                h_info = int(req_dl["height"])
+            if not fps_info and req_dl.get("fps"):
+                fps_info = req_dl["fps"]
+            if not tbr_info and (req_dl.get("tbr") or req_dl.get("vbr") or req_dl.get("abr")):
+                tbr_info = req_dl.get("tbr") or req_dl.get("vbr") or req_dl.get("abr")
+    if w_info > 0 and h_info > 0 and not job.detected_resolution:
+        job.detected_resolution = f"{w_info}x{h_info}"
+    if fps_info and not job.detected_fps:
+        job.detected_fps = _format_fps_str(fps_info)
+    if tbr_info and not job.detected_bitrate:
+        try:
+            job.detected_bitrate = f"{max(1, round(float(tbr_info)))} kbps"
+        except Exception:
+            pass
 
     # Verify video codec and convert to target codec (e.g. H.264 default, H.265, AV1, VP9) or trim clip if needed
     final_output, detected_codec = ensure_video_codec(
@@ -1106,7 +1591,14 @@ def download_media(job: Job, settings: Settings, control, progress, log) -> str:
     )
     if detected_codec:
         job.detected_codec = detected_codec
-        progress({"status": "processing", "progress": 99.8, "detected_codec": detected_codec})
+    progress({
+        "status": "processing",
+        "progress": 99.8,
+        "detected_codec": job.detected_codec,
+        "detected_resolution": job.detected_resolution,
+        "detected_fps": job.detected_fps,
+        "detected_bitrate": job.detected_bitrate,
+    })
     return str(final_output)
 
 
@@ -1154,10 +1646,12 @@ def find_output_file(info: dict, path: Path, job: Job) -> Path | None:
 
 def environment_report() -> dict[str, bool | str]:
     setup_bundled_environment()
+    ffmpeg_path = shutil.which("ffmpeg") or ""
+    ffprobe_path = shutil.which("ffprobe") or (f"{ffmpeg_path} (ffmpeg -i)" if ffmpeg_path else "")
     return {
-        "ffmpeg": shutil.which("ffmpeg") or "",
-        "ffprobe": shutil.which("ffprobe") or "",
+        "ffmpeg": ffmpeg_path,
+        "ffprobe": ffprobe_path,
         "deno": shutil.which("deno") or "",
         "ejs": bool(importlib.util.find_spec("yt_dlp_ejs")),
-        "yt_dlp_version": yt_dlp.version.__version__,
+        "yt_dlp_version": _fast_yt_dlp_version(),
     }
