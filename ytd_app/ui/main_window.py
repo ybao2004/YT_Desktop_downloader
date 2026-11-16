@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QStyle,
@@ -148,20 +149,32 @@ class MainWindow(QMainWindow):
         self.telemetry_timer.timeout.connect(self.refresh_hardware_telemetry)
 
         self.setWindowTitle(f"YouTube Desktop Downloader v{APP_VERSION}")
-        self.resize(1240, 800)
-        self.setMinimumSize(980, 620)
+        self.setMinimumSize(720, 480)
 
-        self.setup_tray_icon()
-        self.make_ui()
-        QApplication.clipboard().dataChanged.connect(self._on_clipboard_data_changed)
+        screen = self.screen() or QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        init_w = min(1240, avail.width()) if avail is not None else 1240
+        init_h = min(800, avail.height()) if avail is not None else 800
+        self.resize(max(720, init_w), max(480, init_h))
 
         if self.settings.last_geometry:
             try:
                 self.restoreGeometry(QByteArray.fromBase64(self.settings.last_geometry.encode("ascii")))
-                if self.width() < 980:
-                    self.resize(1240, max(self.height(), 760))
             except (ValueError, TypeError):
                 pass
+        if avail is not None and not self.isMaximized():
+            clamped_w = min(max(720, self.width()), avail.width())
+            clamped_h = min(max(480, self.height()), avail.height())
+            self.resize(clamped_w, clamped_h)
+            x = max(avail.x(), min(self.x(), avail.right() - clamped_w + 1))
+            y = max(avail.y(), min(self.y(), avail.bottom() - clamped_h + 1))
+            self.move(x, y)
+
+        theme_manager().apply_ui_scale(self.width(), self.height())
+        self.setup_tray_icon()
+        self.make_ui()
+        self.apply_responsive_layout()
+        QApplication.clipboard().dataChanged.connect(self._on_clipboard_data_changed)
 
         for job in self.jobs:
             self.insert_job_row(job, batch_init=True)
@@ -212,7 +225,7 @@ class MainWindow(QMainWindow):
     def make_ui(self) -> None:
         tm = theme_manager()
         resolved_mode = tm.apply(self.settings.theme_mode)
-        self.setStyleSheet(build_stylesheet(tokens_for(resolved_mode)))
+        self.setStyleSheet(build_stylesheet(tokens_for(resolved_mode), tm.ui_scale))
         apply_title_bar_theme(self, resolved_mode == "dark")
         tm.changed.connect(self._on_theme_mode_changed)
 
@@ -279,6 +292,8 @@ class MainWindow(QMainWindow):
         sb.addWidget(self.folder_chip)
         self.status_msg_label = QLabel("")
         self.status_msg_label.setObjectName("statBarItem")
+        self.status_msg_label.setMinimumWidth(0)
+        self.status_msg_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         sb.addWidget(self.status_msg_label, 1)
         self._status_msg_timer = QTimer(self)
         self._status_msg_timer.setSingleShot(True)
@@ -317,11 +332,37 @@ class MainWindow(QMainWindow):
                 self._status_msg_timer.stop()
 
     def _on_theme_mode_changed(self, resolved_mode: str) -> None:
+        tm = theme_manager()
         t = tokens_for(resolved_mode)
         self.setPalette(build_palette(t))
-        self.setStyleSheet(build_stylesheet(t))
+        self.setStyleSheet(build_stylesheet(t, tm.ui_scale))
         apply_title_bar_theme(self, resolved_mode == "dark")
         self._update_queue_toggle_icon()
+
+    def apply_responsive_layout(self) -> None:
+        """Adapt UI scale tier, sidebar mode, page grids, and status bar to window size."""
+        w, h = self.width(), self.height()
+        tm = theme_manager()
+        if tm.apply_ui_scale(w, h):
+            self.setStyleSheet(build_stylesheet(tokens_for(tm.mode), tm.ui_scale))
+            self._update_queue_toggle_icon()
+        if hasattr(self, "sidebar"):
+            self.sidebar.apply_responsive_mode(tm.ui_scale, icon_only=(w < 760))
+        if hasattr(self, "folder_chip"):
+            self.folder_chip.set_compact(w < 960)
+        if hasattr(self, "reflow_hardware_grid"):
+            sb_w = self.sidebar.width() if hasattr(self, "sidebar") else 184
+            self.reflow_hardware_grid(max(320, w - sb_w - 48))
+        if hasattr(self, "pill_gpu"):
+            self.pill_gpu.setVisible(w >= 980)
+            self.pill_disk.setVisible(w >= 980)
+            self.pill_cpu.setVisible(w >= 780)
+            self.pill_ram.setVisible(w >= 780)
+            self.stats_label.setVisible(w >= 680)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.apply_responsive_layout()
 
     # ------------------------------------------------------------------
     # Hardware Monitoring
@@ -2708,6 +2749,12 @@ class MainWindow(QMainWindow):
             self.tab_buttons["active"].setText(f"Đang tải ({active_cnt})")
             self.tab_buttons["done"].setText(f"Hoàn tất ({done_cnt})")
             self.tab_buttons["error"].setText(f"Lỗi ({err_cnt})")
+            for _tb in self.tab_buttons.values():
+                _tb.updateGeometry()
+            if hasattr(self, "tabs_bar"):
+                self.tabs_bar.updateGeometry()
+            if hasattr(self, "filter_bar"):
+                self.filter_bar.updateGeometry()
 
         if hasattr(self, "sidebar"):
             self.sidebar.set_downloads_badge(active_cnt + queued_cnt)

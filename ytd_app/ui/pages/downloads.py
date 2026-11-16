@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import icons
-from ..widgets import FolderChip, SegmentedControl, icon_button, tool_button
-from ...theme import theme_manager
+from ..widgets import FlowBar, FolderChip, SegmentedControl, icon_button, tool_button
+from ...theme import density_metrics, theme_manager
 
 if TYPE_CHECKING:
     from ..main_window import MainWindow
@@ -57,8 +57,9 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     page = QWidget()
     page.setObjectName("pageContainer")
     layout = QVBoxLayout(page)
-    layout.setContentsMargins(24, 20, 24, 16)
-    layout.setSpacing(14)
+    m = density_metrics(theme_manager().ui_scale)
+    layout.setContentsMargins(m["page_margin_x"], m["page_margin_top"], m["page_margin_x"], m["page_margin_bot"])
+    layout.setSpacing(m["page_spacing"])
 
     # Page Header
     header_row = QHBoxLayout()
@@ -75,8 +76,8 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     command_card = QFrame()
     command_card.setObjectName("surfaceCard")
     cmd_layout = QVBoxLayout(command_card)
-    cmd_layout.setContentsMargins(16, 14, 16, 14)
-    cmd_layout.setSpacing(10)
+    cmd_layout.setContentsMargins(m["card_pad_x"], m["card_pad_y"], m["card_pad_x"], m["card_pad_y"])
+    cmd_layout.setSpacing(8 if theme_manager().ui_scale < 0.9 else 10)
 
     # Row 1: URL Input (single link by default, with embedded Paste action) + Primary Download ("Tải xuống")
     input_row = QHBoxLayout()
@@ -145,28 +146,30 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     input_row.addWidget(win.add_btn)
     cmd_layout.addLayout(input_row)
 
-    # Row 2: Segmented Video|Audio + Container + Quality/Bitrate + Codec + Options toggle + Right-aligned Multi-line & Auto-capture
-    config_row = QHBoxLayout()
-    config_row.setSpacing(8)
+    # Row 2: Responsive FlowBar (Video|Audio + Container + Quality/Bitrate + Codec + Options + Multi-line & Auto-capture)
+    win.config_bar = FlowBar(command_card, h_spacing=6 if theme_manager().ui_scale < 0.9 else 8, v_spacing=6)
 
     win.mode_combo = SegmentedControl()
     win.mode_combo.addItem("Video", "video", icon_name="video")
     win.mode_combo.addItem("Audio", "audio", icon_name="music")
     win.mode_combo.setCurrentIndex(0 if win.settings.default_mode == "video" else 1)
     win.mode_combo.currentIndexChanged.connect(win.mode_changed)
-    config_row.addWidget(win.mode_combo)
+    win.config_bar.addWidget(win.mode_combo)
 
     win.ext_combo = QComboBox()
-    win.ext_combo.setMinimumWidth(86)
+    win.ext_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    win.ext_combo.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+    win.ext_combo.setMinimumWidth(74)
     win.ext_combo.setToolTip("Định dạng tệp đầu ra (Container)")
     win.ext_combo.currentIndexChanged.connect(win.on_ext_changed)
-    config_row.addWidget(win.ext_combo)
+    win.config_bar.addWidget(win.ext_combo)
 
     win.quality_label = QLabel("Chất lượng:")
     win.quality_label.setVisible(False)
 
     win.quality_combo = QComboBox()
-    win.quality_combo.setMinimumWidth(128)
+    win.quality_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    win.quality_combo.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     win.quality_combo.setToolTip("Độ phân giải video mục tiêu")
     for label, value in [
         ("Tốt nhất (Auto)", "best"),
@@ -179,10 +182,11 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     ]:
         win.quality_combo.addItem(label, value)
     win.quality_combo.currentIndexChanged.connect(win.schedule_save)
-    config_row.addWidget(win.quality_combo)
+    win.config_bar.addWidget(win.quality_combo)
 
     win.audio_bitrate_combo = QComboBox()
-    win.audio_bitrate_combo.setMinimumWidth(128)
+    win.audio_bitrate_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    win.audio_bitrate_combo.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     win.audio_bitrate_combo.setToolTip("Chất lượng âm thanh (Bitrate)")
     for label, value in [
         ("320 kbps (Cao nhất)", "320"),
@@ -193,13 +197,14 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     ab_idx = win.audio_bitrate_combo.findData(win.settings.default_audio_bitrate)
     win.audio_bitrate_combo.setCurrentIndex(ab_idx if ab_idx >= 0 else 1)
     win.audio_bitrate_combo.currentIndexChanged.connect(win.on_audio_bitrate_changed)
-    config_row.addWidget(win.audio_bitrate_combo)
+    win.config_bar.addWidget(win.audio_bitrate_combo)
 
     win.codec_label = QLabel("Codec:")
     win.codec_label.setVisible(False)
 
     win.codec_combo = QComboBox()
-    win.codec_combo.setMinimumWidth(148)
+    win.codec_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    win.codec_combo.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     win.codec_combo.setToolTip(
         "Chọn chuẩn mã hóa Video đầu ra.\n"
         "• H.264 (Mặc định): Tương thích mọi tivi, điện thoại, phần mềm dựng phim.\n"
@@ -217,7 +222,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     c_idx = win.codec_combo.findData(win.settings.default_video_codec)
     win.codec_combo.setCurrentIndex(c_idx if c_idx >= 0 else 0)
     win.codec_combo.currentIndexChanged.connect(win.on_codec_changed)
-    config_row.addWidget(win.codec_combo)
+    win.config_bar.addWidget(win.codec_combo)
 
     win.mute_btn = tool_button(
         "Âm thanh: Bật",
@@ -230,7 +235,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.mute_btn.setCheckable(True)
     win.mute_btn.setChecked(False)
     win.mute_btn.toggled.connect(win.on_mute_toggled)
-    config_row.addWidget(win.mute_btn)
+    win.config_bar.addWidget(win.mute_btn)
 
     win.more_options_btn = tool_button(
         "Tùy chọn ▾",
@@ -242,19 +247,18 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     )
     win.more_options_btn.setCheckable(True)
     win.more_options_btn.toggled.connect(win.on_more_options_toggled)
-    config_row.addWidget(win.more_options_btn)
+    win.config_bar.addWidget(win.more_options_btn)
 
     win.playlist_chip = QPushButton("Playlist")
     win.playlist_chip.setObjectName("ghostButton")
     win.playlist_chip.setCheckable(True)
     win.playlist_chip.setChecked(win.settings.last_playlist)
     win.playlist_chip.setVisible(win.settings.last_playlist)
+    win.playlist_chip.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     win.playlist_chip.setCursor(Qt.CursorShape.PointingHandCursor)
     win.playlist_chip.setToolTip("Đang bật chế độ tải cả Playlist (bấm để tắt)")
     win.playlist_chip.clicked.connect(lambda checked: win.playlist_check.setChecked(checked))
-    config_row.addWidget(win.playlist_chip)
-
-    config_row.addStretch(1)
+    win.config_bar.addWidget(win.playlist_chip)
 
     win.multiline_btn = tool_button(
         "Nhập nhiều dòng...",
@@ -265,7 +269,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         icon_size=14,
     )
     win.batch_multiline_btn = win.multiline_btn
-    config_row.addWidget(win.multiline_btn)
+    win.config_bar.addWidget(win.multiline_btn, trailing=True)
 
     win.auto_capture_btn = tool_button(
         "Tự bắt link: Tắt",
@@ -278,13 +282,13 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.auto_capture_btn.setCheckable(True)
     win.auto_capture_btn.setChecked(False)
     win.auto_capture_btn.toggled.connect(win.on_auto_capture_toggled)
-    config_row.addWidget(win.auto_capture_btn)
+    win.config_bar.addWidget(win.auto_capture_btn, trailing=True)
 
     # Storage folder chip will be mounted on the bottom statusBar (left-aligned)
     win.folder_chip = FolderChip(win.settings.download_dir, page)
     win.folder_chip.clicked.connect(win.choose_folder)
 
-    cmd_layout.addLayout(config_row)
+    cmd_layout.addWidget(win.config_bar)
 
     # Row 3: Collapsible Advanced Media Options (Clip Trimmer + Subtitles + Metadata + Playlist)
     win.extra_options_frame = QFrame()
@@ -297,52 +301,54 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     divider.setObjectName("dividerLine")
     extra_v.addWidget(divider)
 
-    extra_row = QHBoxLayout()
-    extra_row.setContentsMargins(0, 2, 0, 0)
-    extra_row.setSpacing(10)
+    extra_bar = FlowBar(win.extra_options_frame, h_spacing=12, v_spacing=6)
 
-    extra_row.addWidget(QLabel("Cắt đoạn:"))
+    clip_group = QWidget(extra_bar)
+    clip_row = QHBoxLayout(clip_group)
+    clip_row.setContentsMargins(0, 0, 0, 0)
+    clip_row.setSpacing(6)
+    clip_row.addWidget(QLabel("Cắt đoạn:"))
     win.clip_start_edit = QLineEdit()
     win.clip_start_edit.setPlaceholderText("00:00")
-    win.clip_start_edit.setFixedWidth(74)
+    win.clip_start_edit.setFixedWidth(72)
     win.clip_start_edit.setToolTip("Thời điểm bắt đầu (VD: 01:15 hoặc 00:02:30)")
-    extra_row.addWidget(win.clip_start_edit)
-
-    extra_row.addWidget(QLabel("→"))
+    clip_row.addWidget(win.clip_start_edit)
+    clip_row.addWidget(QLabel("→"))
     win.clip_end_edit = QLineEdit()
     win.clip_end_edit.setPlaceholderText("05:30")
-    win.clip_end_edit.setFixedWidth(74)
+    win.clip_end_edit.setFixedWidth(72)
     win.clip_end_edit.setToolTip("Thời điểm kết thúc (VD: 05:30)")
-    extra_row.addWidget(win.clip_end_edit)
+    clip_row.addWidget(win.clip_end_edit)
+    extra_bar.addWidget(clip_group)
 
-    extra_row.addSpacing(8)
+    sub_group = QWidget(extra_bar)
+    sub_row = QHBoxLayout(sub_group)
+    sub_row.setContentsMargins(0, 0, 0, 0)
+    sub_row.setSpacing(6)
     win.subtitles_check = QCheckBox("Phụ đề (CC):")
     win.subtitles_check.setChecked(win.settings.download_subtitles)
     win.subtitles_check.toggled.connect(win.on_subtitles_toggled)
-    extra_row.addWidget(win.subtitles_check)
-
+    sub_row.addWidget(win.subtitles_check)
     win.sub_langs_edit = QLineEdit(win.settings.subtitle_langs or "vi,en")
     win.sub_langs_edit.setPlaceholderText("vi,en")
-    win.sub_langs_edit.setFixedWidth(80)
+    win.sub_langs_edit.setFixedWidth(78)
     win.sub_langs_edit.setToolTip("Mã ngôn ngữ phụ đề cách nhau bởi dấu phẩy (VD: vi,en,ja)")
     win.sub_langs_edit.editingFinished.connect(win.on_subtitles_toggled)
-    extra_row.addWidget(win.sub_langs_edit)
+    sub_row.addWidget(win.sub_langs_edit)
+    extra_bar.addWidget(sub_group)
 
-    extra_row.addSpacing(8)
     win.embed_meta_check = QCheckBox("Nhúng Metadata")
     win.embed_meta_check.setChecked(win.settings.embed_metadata)
     win.embed_meta_check.toggled.connect(win.on_embed_meta_toggled)
-    extra_row.addWidget(win.embed_meta_check)
+    extra_bar.addWidget(win.embed_meta_check)
 
-    extra_row.addSpacing(8)
     win.playlist_check = QCheckBox("Tải cả Playlist")
     win.playlist_check.setToolTip("Phân tích và tải toàn bộ Playlist (tối đa 150 video)")
     win.playlist_check.setChecked(win.settings.last_playlist)
     win.playlist_check.toggled.connect(win.on_playlist_toggle)
-    extra_row.addWidget(win.playlist_check)
+    extra_bar.addWidget(win.playlist_check)
 
-    extra_row.addStretch(1)
-    extra_v.addLayout(extra_row)
+    extra_v.addWidget(extra_bar)
     cmd_layout.addWidget(win.extra_options_frame)
 
     layout.addWidget(command_card)
@@ -355,9 +361,9 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.preview_card = QFrame()
     win.preview_card.setObjectName("previewCard")
     win.preview_card.setVisible(False)
-    preview_outer = QVBoxLayout(win.preview_card)
-    preview_outer.setContentsMargins(16, 12, 16, 12)
-    preview_outer.setSpacing(10)
+    win.preview_outer = QVBoxLayout(win.preview_card)
+    win.preview_outer.setContentsMargins(m["card_pad_x"], max(8, m["card_pad_y"] - 2), m["card_pad_x"], max(8, m["card_pad_y"] - 2))
+    win.preview_outer.setSpacing(8 if theme_manager().ui_scale < 0.9 else 10)
 
     preview_header = QHBoxLayout()
     win.preview_badge_title = QLabel("XEM TRƯỚC NỘI DUNG")
@@ -375,10 +381,10 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         "Thu gọn khung xem trước",
     )
     preview_header.addWidget(win.close_preview_btn)
-    preview_outer.addLayout(preview_header)
+    win.preview_outer.addLayout(preview_header)
 
     win.preview_stack = QStackedWidget()
-    preview_outer.addWidget(win.preview_stack)
+    win.preview_outer.addWidget(win.preview_stack)
 
     # Stack Page 0: Single Video Preview
     video_page = QWidget()
@@ -387,11 +393,11 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     video_page_layout.setSpacing(10)
 
     video_info_row = QHBoxLayout()
-    video_info_row.setSpacing(14)
+    video_info_row.setSpacing(12)
 
     win.preview_image = QLabel("Thumbnail")
     win.preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    win.preview_image.setFixedSize(176, 99)
+    win.preview_image.setFixedSize(m["preview_thumb_w"], m["preview_thumb_h"])
     win.preview_image.setObjectName("thumbnail")
     video_info_row.addWidget(win.preview_image)
 
@@ -404,12 +410,11 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.preview_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     meta_col.addWidget(win.preview_title)
 
-    adv_row = QHBoxLayout()
+    adv_bar = FlowBar(video_page, h_spacing=8, v_spacing=6)
     win.exact_format_check = QCheckBox("Chọn luồng thủ công từ bảng Format ID")
     win.exact_format_check.setToolTip("Mở bảng danh sách toàn bộ luồng video/audio gốc từ YouTube")
     win.exact_format_check.toggled.connect(win.on_exact_format_toggled)
-    adv_row.addWidget(win.exact_format_check)
-    adv_row.addStretch(1)
+    adv_bar.addWidget(win.exact_format_check)
 
     win.preview_download_btn = tool_button(
         "Tải video này",
@@ -418,8 +423,8 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         "primaryButton",
         icon_name="download",
     )
-    adv_row.addWidget(win.preview_download_btn)
-    meta_col.addLayout(adv_row)
+    adv_bar.addWidget(win.preview_download_btn, trailing=True)
+    meta_col.addWidget(adv_bar)
 
     video_info_row.addLayout(meta_col, 1)
     video_page_layout.addLayout(video_info_row)
@@ -441,7 +446,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.formats_table.setColumnWidth(5, 130)
     win.formats_table.setColumnWidth(6, 100)
     win.formats_table.horizontalHeader().setStretchLastSection(True)
-    win.formats_table.setFixedHeight(165)
+    win.formats_table.setFixedHeight(m["table_h"])
     win.formats_table.setVisible(False)
     video_page_layout.addWidget(win.formats_table)
 
@@ -453,18 +458,20 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     playlist_page_layout.setContentsMargins(0, 0, 0, 0)
     playlist_page_layout.setSpacing(8)
 
-    pl_top_row = QHBoxLayout()
+    pl_top_bar = FlowBar(playlist_page, h_spacing=8, v_spacing=6)
     win.playlist_title_label = QLabel("Playlist")
     win.playlist_title_label.setObjectName("cardTitle")
-    pl_top_row.addWidget(win.playlist_title_label, 1)
+    win.playlist_title_label.setMinimumWidth(140)
+    pl_top_bar.addWidget(win.playlist_title_label)
 
-    pl_top_row.addWidget(tool_button(
+    pl_actions = FlowBar(pl_top_bar, h_spacing=6, v_spacing=4)
+    pl_actions.addWidget(tool_button(
         "Chọn tất cả",
         lambda: win.set_all_playlist_items(True),
         "Chọn tất cả video trong playlist",
         "ghostButton",
     ))
-    pl_top_row.addWidget(tool_button(
+    pl_actions.addWidget(tool_button(
         "Bỏ chọn tất cả",
         lambda: win.set_all_playlist_items(False),
         "Bỏ chọn toàn bộ video",
@@ -477,12 +484,13 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         "primaryButton",
         icon_name="download",
     )
-    pl_top_row.addWidget(win.playlist_download_btn)
-    playlist_page_layout.addLayout(pl_top_row)
+    pl_actions.addWidget(win.playlist_download_btn, trailing=True)
+    pl_top_bar.addWidget(pl_actions, trailing=True)
+    playlist_page_layout.addWidget(pl_top_bar)
 
     win.playlist_scroll = QScrollArea()
     win.playlist_scroll.setWidgetResizable(True)
-    win.playlist_scroll.setFixedHeight(155)
+    win.playlist_scroll.setFixedHeight(m["preview_scroll_h"])
     win.playlist_list_container = QWidget()
     win.playlist_list_container.setObjectName("scrollContents")
     win.playlist_list_layout = QVBoxLayout(win.playlist_list_container)
@@ -500,8 +508,9 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     queue_sec_layout.setContentsMargins(0, 0, 0, 0)
     queue_sec_layout.setSpacing(10)
 
-    filter_bar = QHBoxLayout()
-    filter_bar.setSpacing(4)
+    win.filter_bar = FlowBar(win.queue_section, h_spacing=10, v_spacing=6)
+    win.tabs_bar = FlowBar(win.filter_bar, h_spacing=4, v_spacing=4)
+    win.tabs_bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
     win.tab_group = QButtonGroup(win)
     win.tab_group.setExclusive(True)
@@ -517,15 +526,19 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         btn = QPushButton(text)
         btn.setObjectName("tabButton")
         btn.setCheckable(True)
+        btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         if key == "recent":
             btn.setChecked(True)
         btn.clicked.connect(lambda _checked=False, k=key: win.on_filter_pill_clicked(k))
         win.tab_group.addButton(btn)
         win.tab_buttons[key] = btn
-        filter_bar.addWidget(btn)
+        win.tabs_bar.addWidget(btn)
 
-    filter_bar.addStretch(1)
+    win.filter_bar.addWidget(win.tabs_bar)
+
+    win.tools_bar = FlowBar(win.filter_bar, h_spacing=4, v_spacing=4)
+    win.tools_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
     win.retry_all_btn = tool_button(
         "Tải lại tất cả",
@@ -535,7 +548,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         icon_name="rotate-cw",
         icon_size=14,
     )
-    filter_bar.addWidget(win.retry_all_btn)
+    win.tools_bar.addWidget(win.retry_all_btn)
 
     win.undo_btn = tool_button(
         "Hoàn tác",
@@ -546,7 +559,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         icon_size=14,
     )
     win.undo_btn.setEnabled(False)
-    filter_bar.addWidget(win.undo_btn)
+    win.tools_bar.addWidget(win.undo_btn)
 
     win.redo_btn = tool_button(
         "Làm lại",
@@ -557,7 +570,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         icon_size=14,
     )
     win.redo_btn.setEnabled(False)
-    filter_bar.addWidget(win.redo_btn)
+    win.tools_bar.addWidget(win.redo_btn)
 
     win.clear_all_btn = tool_button(
         "Xóa tất cả",
@@ -567,13 +580,15 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         icon_name="trash-2",
         icon_size=14,
     )
-    filter_bar.addWidget(win.clear_all_btn)
+    win.tools_bar.addWidget(win.clear_all_btn)
 
     win.search_edit = QLineEdit()
     win.search_edit.setObjectName("searchInput")
     win.search_edit.setClearButtonEnabled(True)
     win.search_edit.setPlaceholderText("Tìm kiếm tác vụ...")
-    win.search_edit.setFixedWidth(185)
+    win.search_edit.setMinimumWidth(150)
+    win.search_edit.setMaximumWidth(185)
+    win.search_edit.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     search_act = win.search_edit.addAction(
         icons.icon("search", size=14),
         QLineEdit.ActionPosition.LeadingPosition,
@@ -582,14 +597,14 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         lambda _m: search_act.setIcon(icons.icon("search", size=14))
     )
     win.search_edit.textChanged.connect(win.apply_job_filters)
-    filter_bar.addWidget(win.search_edit)
+    win.tools_bar.addWidget(win.search_edit, trailing=True)
 
     win.start_btn = icon_button(
         "play",
         win.toggle_queue_running,
         "Tiếp tục tải / Tạm dừng tất cả tác vụ",
     )
-    filter_bar.addWidget(win.start_btn)
+    win.tools_bar.addWidget(win.start_btn, trailing=True)
 
     # Hidden compatibility buttons for direct method calls
     win.stop_queue_btn = tool_button("Tạm dừng hết", win.pause_all_active)
@@ -635,9 +650,10 @@ def build_downloads_page(win: MainWindow) -> QWidget:
         open_bulk_menu,
         "Thao tác hàng loạt (Tạm dừng hết, Tiếp tục hết, Tải lại lỗi, Dọn mục xong, Xóa tất cả)",
     )
-    filter_bar.addWidget(win.bulk_menu_btn)
+    win.tools_bar.addWidget(win.bulk_menu_btn, trailing=True)
+    win.filter_bar.addWidget(win.tools_bar, trailing=True)
 
-    queue_sec_layout.addLayout(filter_bar)
+    queue_sec_layout.addWidget(win.filter_bar)
 
     # 4. UNIFIED JOB LIST CARD (scrollable rows inside one bordered container)
     list_card = QFrame()
@@ -658,7 +674,7 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.empty_state_frame = QFrame()
     win.empty_state_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
     empty_layout = QVBoxLayout(win.empty_state_frame)
-    empty_layout.setContentsMargins(24, 56, 24, 56)
+    empty_layout.setContentsMargins(16, 28 if theme_manager().ui_scale < 0.9 else 56, 16, 28 if theme_manager().ui_scale < 0.9 else 56)
     empty_layout.setSpacing(6)
 
     win.empty_icon_label = QLabel()
@@ -674,12 +690,14 @@ def build_downloads_page(win: MainWindow) -> QWidget:
 
     win.empty_title_label = QLabel("Chưa có tác vụ tải xuống nào")
     win.empty_title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    win.empty_title_label.setWordWrap(True)
     win.empty_title_label.setObjectName("cardTitle")
 
     win.empty_sub_label = QLabel(
         "Dán liên kết YouTube ở khung phía trên và bấm 'Tải xuống'."
     )
     win.empty_sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    win.empty_sub_label.setWordWrap(True)
     win.empty_sub_label.setObjectName("mutedLabel")
     empty_layout.addWidget(win.empty_title_label)
     empty_layout.addWidget(win.empty_sub_label)
@@ -699,4 +717,24 @@ def build_downloads_page(win: MainWindow) -> QWidget:
     win.downloads_queue_slot.setContentsMargins(0, 0, 0, 0)
     win.downloads_queue_slot.addWidget(win.queue_section, 1)
     layout.addLayout(win.downloads_queue_slot, 1)
+
+    def _apply_density(scale: float) -> None:
+        dm = density_metrics(scale)
+        is_compact = scale < 0.96
+        layout.setContentsMargins(dm["page_margin_x"], dm["page_margin_top"], dm["page_margin_x"], dm["page_margin_bot"])
+        layout.setSpacing(dm["page_spacing"])
+        cmd_layout.setContentsMargins(dm["card_pad_x"], dm["card_pad_y"], dm["card_pad_x"], dm["card_pad_y"])
+        cmd_layout.setSpacing(8 if is_compact else 10)
+        win.preview_outer.setContentsMargins(dm["card_pad_x"], max(8, dm["card_pad_y"] - 2), dm["card_pad_x"], max(8, dm["card_pad_y"] - 2))
+        win.preview_outer.setSpacing(8 if is_compact else 10)
+        win.preview_image.setFixedSize(dm["preview_thumb_w"], dm["preview_thumb_h"])
+        win.formats_table.setFixedHeight(dm["table_h"])
+        win.playlist_scroll.setFixedHeight(dm["preview_scroll_h"])
+        v_pad = 24 if scale < 0.86 else (36 if is_compact else 56)
+        empty_layout.setContentsMargins(16, v_pad, 16, v_pad)
+        win.config_bar.setSpacing(6 if is_compact else 8, 6)
+        win.filter_bar.setSpacing(8 if is_compact else 10, 6)
+
+    win.apply_downloads_density = _apply_density
+    theme_manager().density_changed.connect(_apply_density)
     return page

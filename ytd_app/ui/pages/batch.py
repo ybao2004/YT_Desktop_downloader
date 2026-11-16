@@ -21,9 +21,22 @@ from PyQt6.QtWidgets import (
 
 from .downloads import PasteAwareLineEdit
 from .. import icons
-from ..widgets import FolderChip, SegmentedControl, tool_button
+from ..widgets import FlowBar, FolderChip, SegmentedControl, tool_button
 from ...engine import extract_youtube_urls
 from ...theme import theme_manager
+
+
+def _clamp_dialog_size(dialog: QDialog, desired_w: int, desired_h: int) -> None:
+    """Keep modal dialogs within the active screen's available geometry on small/high-DPI displays."""
+    screen = dialog.screen() or QApplication.primaryScreen()
+    if screen is not None:
+        avail = screen.availableGeometry()
+        min_w = min(desired_w, max(460, avail.width() - 40))
+        min_h = min(desired_h, max(340, avail.height() - 48))
+        dialog.setMinimumSize(min_w, min_h)
+        dialog.resize(min(desired_w + 40, avail.width() - 32), min(desired_h + 20, avail.height() - 40))
+    else:
+        dialog.setMinimumSize(desired_w, desired_h)
 
 if TYPE_CHECKING:
     from ..main_window import MainWindow
@@ -56,11 +69,11 @@ class MultiLinkDialog(QDialog):
         super().__init__(win)
         self.win = win
         self.setWindowTitle("Thêm nhiều liên kết vào Hàng đợi")
-        self.setMinimumSize(640, 420)
+        _clamp_dialog_size(self, 620, 410)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
 
         top_row = QHBoxLayout()
         title = QLabel("Danh sách liên kết YouTube")
@@ -92,8 +105,7 @@ class MultiLinkDialog(QDialog):
         self.editor.textChanged.connect(self._update_stats)
         layout.addWidget(self.editor, 1)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
+        btn_bar = FlowBar(self, h_spacing=8, v_spacing=6)
 
         self.append_paste_btn = tool_button(
             "Dán thêm",
@@ -103,7 +115,7 @@ class MultiLinkDialog(QDialog):
             icon_name="clipboard-paste",
             icon_size=14,
         )
-        btn_row.addWidget(self.append_paste_btn)
+        btn_bar.addWidget(self.append_paste_btn)
 
         self.clean_btn = tool_button(
             "Lọc sạch & Khử trùng",
@@ -113,7 +125,7 @@ class MultiLinkDialog(QDialog):
             icon_name="sparkles",
             icon_size=14,
         )
-        btn_row.addWidget(self.clean_btn)
+        btn_bar.addWidget(self.clean_btn)
 
         self.clear_btn = tool_button(
             "Xóa trắng",
@@ -123,12 +135,10 @@ class MultiLinkDialog(QDialog):
             icon_name="trash-2",
             icon_size=14,
         )
-        btn_row.addWidget(self.clear_btn)
-
-        btn_row.addStretch(1)
+        btn_bar.addWidget(self.clear_btn)
 
         cancel_btn = tool_button("Đóng", self.reject, "Đóng hộp thoại", "ghostButton")
-        btn_row.addWidget(cancel_btn)
+        btn_bar.addWidget(cancel_btn, trailing=True)
 
         self.submit_btn = tool_button(
             "Đưa vào Hàng đợi",
@@ -138,9 +148,9 @@ class MultiLinkDialog(QDialog):
             icon_name="list-plus",
             icon_size=14,
         )
-        btn_row.addWidget(self.submit_btn)
+        btn_bar.addWidget(self.submit_btn, trailing=True)
 
-        layout.addLayout(btn_row)
+        layout.addWidget(btn_bar)
         self._update_stats()
 
     def _append_from_clipboard(self) -> None:
@@ -234,11 +244,11 @@ class CookieVerifyDialog(QDialog):
         super().__init__(win)
         self.win = win
         self.setWindowTitle("Xác minh chống Bot YouTube — Dán cookies.txt")
-        self.setMinimumSize(660, 460)
+        _clamp_dialog_size(self, 640, 440)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
 
         top_row = QHBoxLayout()
         title = QLabel("Xác minh tài khoản YouTube (cookies.txt)")
@@ -286,8 +296,7 @@ class CookieVerifyDialog(QDialog):
         self.editor.textChanged.connect(self._update_stats)
         layout.addWidget(self.editor, 1)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
+        btn_bar = FlowBar(self, h_spacing=8, v_spacing=6)
 
         self.paste_btn = tool_button(
             "Dán từ Clipboard",
@@ -297,7 +306,7 @@ class CookieVerifyDialog(QDialog):
             icon_name="clipboard-paste",
             icon_size=14,
         )
-        btn_row.addWidget(self.paste_btn)
+        btn_bar.addWidget(self.paste_btn)
 
         self.browse_btn = tool_button(
             "Chọn tệp .txt...",
@@ -307,7 +316,7 @@ class CookieVerifyDialog(QDialog):
             icon_name="folder-open",
             icon_size=14,
         )
-        btn_row.addWidget(self.browse_btn)
+        btn_bar.addWidget(self.browse_btn)
 
         self.ext_btn = tool_button(
             "Tiện ích lấy Cookie",
@@ -317,7 +326,7 @@ class CookieVerifyDialog(QDialog):
             icon_name="external-link",
             icon_size=14,
         )
-        btn_row.addWidget(self.ext_btn)
+        btn_bar.addWidget(self.ext_btn)
 
         self.clear_btn = tool_button(
             "Xóa trắng",
@@ -327,12 +336,10 @@ class CookieVerifyDialog(QDialog):
             icon_name="trash-2",
             icon_size=14,
         )
-        btn_row.addWidget(self.clear_btn)
-
-        btn_row.addStretch(1)
+        btn_bar.addWidget(self.clear_btn)
 
         cancel_btn = tool_button("Đóng", self.reject, "Đóng hộp thoại", "ghostButton")
-        btn_row.addWidget(cancel_btn)
+        btn_bar.addWidget(cancel_btn, trailing=True)
 
         self.submit_btn = tool_button(
             "Lưu Cookie & Tải lại ngay",
@@ -342,9 +349,9 @@ class CookieVerifyDialog(QDialog):
             icon_name="check",
             icon_size=14,
         )
-        btn_row.addWidget(self.submit_btn)
+        btn_bar.addWidget(self.submit_btn, trailing=True)
 
-        layout.addLayout(btn_row)
+        layout.addWidget(btn_bar)
         self._update_stats()
 
     def _paste_from_clipboard(self) -> None:

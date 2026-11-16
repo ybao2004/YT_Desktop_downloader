@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..widgets import SectionCard, SegmentedControl, SettingRow, tool_button
-from ...theme import progress_bar_qss, status_badge_qss, theme_manager
+from ..widgets import FlowBar, SectionCard, SegmentedControl, SettingRow, tool_button
+from ...theme import density_metrics, progress_bar_qss, status_badge_qss, theme_manager
 from ...updater import UpdateInfo, launch_staged_updater
 from ...version import APP_VERSION, DEFAULT_GITHUB_REPO, app_data_dir, default_download_dir
 from ...workers import UpdateCheckWorker, UpdateDownloadWorker, YtDlpUpdateWorker
@@ -36,19 +36,18 @@ def build_settings_page(win: MainWindow) -> QWidget:
     outer_page = QWidget()
     outer_page.setObjectName("pageContainer")
     outer_v = QVBoxLayout(outer_page)
-    outer_v.setContentsMargins(24, 20, 24, 16)
-    outer_v.setSpacing(12)
+    m = density_metrics(theme_manager().ui_scale)
+    outer_v.setContentsMargins(m["page_margin_x"], m["page_margin_top"], m["page_margin_x"], m["page_margin_bot"])
+    outer_v.setSpacing(max(8, m["page_spacing"] - 2))
 
-    header = QHBoxLayout()
+    header_bar = FlowBar(outer_page, h_spacing=8, v_spacing=4)
     title = QLabel("Cài đặt")
     title.setObjectName("pageTitle")
-    header.addWidget(title)
+    header_bar.addWidget(title)
     sub = QLabel("Mọi thay đổi được tự động lưu ngay lập tức")
     sub.setObjectName("mutedLabel")
-    header.addSpacing(8)
-    header.addWidget(sub)
-    header.addStretch(1)
-    outer_v.addLayout(header)
+    header_bar.addWidget(sub)
+    outer_v.addWidget(header_bar)
 
     # Sub-tabs Navigation using SegmentedControl
     win.settings_sub_segment = SegmentedControl()
@@ -128,7 +127,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
     folder_row.setContentsMargins(0, 0, 0, 0)
     folder_row.setSpacing(6)
     win.folder_edit = QLineEdit(win.settings.download_dir)
-    win.folder_edit.setMinimumWidth(280)
+    win.folder_edit.setMinimumWidth(160)
     win.folder_edit.setPlaceholderText("Thư mục lưu file tải về")
     win.folder_edit.editingFinished.connect(win.on_folder_edited)
     win.folder_edit.textChanged.connect(win.on_folder_text_changed)
@@ -205,7 +204,9 @@ def build_settings_page(win: MainWindow) -> QWidget:
     )
 
     win.browser_cookie_combo = QComboBox()
-    win.browser_cookie_combo.setMinimumWidth(310)
+    win.browser_cookie_combo.setMinimumWidth(220)
+    win.browser_cookie_combo.setMaximumWidth(340)
+    win.browser_cookie_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     for b_label, b_val in [
         ("Tự động khi YouTube hỏi xác minh Bot (Khuyên dùng)", "auto"),
         ("Không dùng", ""),
@@ -233,7 +234,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
     cookie_row.setContentsMargins(0, 0, 0, 0)
     cookie_row.setSpacing(6)
     win.cookie_edit = QLineEdit(win.settings.cookie_file)
-    win.cookie_edit.setMinimumWidth(220)
+    win.cookie_edit.setMinimumWidth(140)
     win.cookie_edit.setPlaceholderText("Đường dẫn cookies.txt (Netscape format - tùy chọn)")
     win.cookie_edit.editingFinished.connect(win.on_cookie_edited)
     cookie_row.addWidget(win.cookie_edit, 1)
@@ -268,7 +269,9 @@ def build_settings_page(win: MainWindow) -> QWidget:
     # ==================================================================
     codec_card = SectionCard("Mã hóa video (FFmpeg)")
     win.hw_accel_combo = QComboBox()
-    win.hw_accel_combo.setMinimumWidth(310)
+    win.hw_accel_combo.setMinimumWidth(220)
+    win.hw_accel_combo.setMaximumWidth(340)
+    win.hw_accel_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
     for label, val in [
         ("Tự động (Ưu tiên GPU NVENC / QSV / AMF → CPU)", "auto"),
         ("NVIDIA NVENC (h264_nvenc / hevc_nvenc)", "nvenc"),
@@ -323,7 +326,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
     appdata_row.setSpacing(6)
     app_data_edit = QLineEdit(str(app_data_dir()))
     app_data_edit.setReadOnly(True)
-    app_data_edit.setMinimumWidth(260)
+    app_data_edit.setMinimumWidth(160)
     appdata_row.addWidget(app_data_edit, 1)
     appdata_row.addWidget(
         tool_button(
@@ -407,7 +410,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
     win.upd_status_lbl.setWordWrap(True)
     env_card.body_layout.addWidget(win.upd_status_lbl)
 
-    upd_btn_row = QHBoxLayout()
+    upd_btn_row = FlowBar(env_card, h_spacing=8, v_spacing=6)
     btn_recheck_env = tool_button(
         "Kiểm tra lại môi trường",
         refresh_env_panel,
@@ -452,8 +455,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
     upd_btn_row.addWidget(btn_ytdlp)
     upd_btn_row.addWidget(btn_check)
     upd_btn_row.addWidget(btn_install)
-    upd_btn_row.addStretch(1)
-    env_card.body_layout.addLayout(upd_btn_row)
+    env_card.body_layout.addWidget(upd_btn_row)
 
     win.upd_pbar = QProgressBar()
     win.upd_pbar.setRange(0, 100)
@@ -466,7 +468,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
 
     win.upd_notes_box = QPlainTextEdit()
     win.upd_notes_box.setReadOnly(True)
-    win.upd_notes_box.setMinimumHeight(180)
+    win.upd_notes_box.setMinimumHeight(130 if theme_manager().ui_scale < 0.9 else 180)
     win.upd_notes_box.setPlaceholderText("Ghi chú phát hành và tiến trình cập nhật sẽ hiển thị tại đây...")
     env_card.body_layout.addWidget(win.upd_notes_box)
 
@@ -619,7 +621,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
     credits_lbl.setWordWrap(True)
     about_card.body_layout.addWidget(credits_lbl)
 
-    about_btns = QHBoxLayout()
+    about_btns = FlowBar(about_card, h_spacing=8, v_spacing=6)
     about_btns.addWidget(
         tool_button(
             "Mở trang GitHub dự án",
@@ -646,8 +648,7 @@ def build_settings_page(win: MainWindow) -> QWidget:
             icon_size=14,
         )
     )
-    about_btns.addStretch(1)
-    about_card.body_layout.addLayout(about_btns)
+    about_card.body_layout.addWidget(about_btns)
 
     v_about.addWidget(about_card)
     v_about.addStretch(1)
@@ -662,4 +663,16 @@ def build_settings_page(win: MainWindow) -> QWidget:
     win.settings_stack.addWidget(tab_about_scroll)
 
     outer_v.addWidget(win.settings_stack, 1)
+
+    def _apply_density(scale: float) -> None:
+        dm = density_metrics(scale)
+        outer_v.setContentsMargins(dm["page_margin_x"], dm["page_margin_top"], dm["page_margin_x"], dm["page_margin_bot"])
+        outer_v.setSpacing(max(8, dm["page_spacing"] - 2))
+        v_general.setSpacing(dm["page_spacing"])
+        v_update.setSpacing(dm["page_spacing"])
+        v_about.setSpacing(dm["page_spacing"])
+        win.upd_notes_box.setMinimumHeight(130 if scale < 0.9 else 180)
+
+    win.apply_settings_density = _apply_density
+    theme_manager().density_changed.connect(_apply_density)
     return outer_page

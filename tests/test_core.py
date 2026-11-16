@@ -1289,14 +1289,14 @@ class UIRedesignTests(unittest.TestCase):
 
         # 1. Version consistency across package, manifest, and PE resource
         self.assertEqual(ytd_app.__version__, APP_VERSION)
-        self.assertEqual(APP_VERSION, "3.2.2")
+        self.assertEqual(APP_VERSION, "3.3.0")
 
         root = Path(__file__).resolve().parent.parent
         version_info_path = root / "version_info.txt"
         if version_info_path.is_file():
             txt = version_info_path.read_text(encoding="utf-8")
-            self.assertIn("(3, 2, 2, 0)", txt)
-            self.assertIn("'3.2.2.0'", txt)
+            self.assertIn("(3, 3, 0, 0)", txt)
+            self.assertIn("'3.3.0.0'", txt)
 
         manifest_path = root / "dist" / "version.json"
         if manifest_path.is_file():
@@ -1382,8 +1382,8 @@ class UIRedesignTests(unittest.TestCase):
             self.assertEqual(sp.status_label.text(), "Hoàn tất!")
             # Check version displayed in sub_label
             labels = sp.findChildren(QLabel)
-            sub_texts = [lbl.text() for lbl in labels if "v3.2.2" in lbl.text()]
-            self.assertTrue(len(sub_texts) > 0, f"Expected v3.2.2 in splash labels, found: {[l.text() for l in labels]}")
+            sub_texts = [lbl.text() for lbl in labels if "v3.3.0" in lbl.text()]
+            self.assertTrue(len(sub_texts) > 0, f"Expected v3.3.0 in splash labels, found: {[l.text() for l in labels]}")
         finally:
             sp.close()
 
@@ -1451,6 +1451,92 @@ class UIRedesignTests(unittest.TestCase):
             # 4. Acquire again after release
             self.assertTrue(main.acquire_single_instance_lock(custom_name=test_mutex))
             main.release_single_instance_lock()
+
+    def test_responsive_high_dpi_and_small_screen_layout(self):
+        """Verify responsive density tiers, FlowBar wrapping (zero clipping/overlap), icon-rail sidebar, and status bar breakpoints."""
+        if not self.has_qt:
+            self.skipTest("PyQt6 not available")
+        from PyQt6.QtCore import QPoint, QRect
+        from PyQt6.QtWidgets import QApplication
+        from ytd_app.theme import resolve_ui_tier, theme_manager
+        from ytd_app.ui import MainWindow
+
+        # 1. Verify discrete density tiers for 100%, 150%, and 175% logical dimensions
+        self.assertEqual(resolve_ui_tier(1400, 820), ("normal", 1.0))
+        self.assertEqual(resolve_ui_tier(1280, 672), ("compact", 0.90))
+        self.assertEqual(resolve_ui_tier(1097, 569), ("dense", 0.82))
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Storage(Path(tmp))
+            with patch("ytd_app.ui.Storage", return_value=store):
+                with patch(
+                    "ytd_app.ui.main_window.MainWindow.check_environment",
+                    return_value={"ffmpeg": "ok", "ffprobe": "ok", "deno": "ok", "ejs": True, "yt_dlp_version": "2026.10"},
+                ):
+                    win = MainWindow()
+                    try:
+                        win.show()
+                        self.assertEqual(win.minimumWidth(), 720)
+                        self.assertEqual(win.minimumHeight(), 480)
+
+                        for expected_tier, w, h in [
+                            ("compact", 1280, 672),
+                            ("dense", 1097, 569),
+                            ("dense", 740, 500),
+                        ]:
+                            win.switch_workspace_tab("downloads")
+                            win.resize(w, h)
+                            app.processEvents()
+                            app.processEvents()
+                            self.assertEqual(theme_manager().ui_tier, expected_tier)
+
+                            # Sidebar icon-only rail when width < 760
+                            if w < 760:
+                                self.assertLessEqual(win.sidebar.width(), 64)
+                                self.assertTrue(win.sidebar.version_label.isHidden())
+                            else:
+                                self.assertGreaterEqual(win.sidebar.width(), 160)
+                                self.assertFalse(win.sidebar.version_label.isHidden())
+
+                            # Check Status Bar breakpoints
+                            if w < 980:
+                                self.assertTrue(win.pill_gpu.isHidden())
+                                self.assertTrue(win.pill_disk.isHidden())
+                            else:
+                                self.assertFalse(win.pill_gpu.isHidden())
+                                self.assertFalse(win.pill_disk.isHidden())
+
+                            # Zero clipped or overlapping controls in config_bar & filter_bar (mapped to window coords)
+                            for group in (
+                                [win.mode_combo, win.ext_combo, win.quality_combo, win.codec_combo, win.mute_btn, win.more_options_btn, win.multiline_btn, win.auto_capture_btn],
+                                list(win.tab_buttons.values()) + [win.retry_all_btn, win.undo_btn, win.redo_btn, win.clear_all_btn, win.search_edit],
+                            ):
+                                visible = [c for c in group if not c.isHidden()]
+                                rects = []
+                                for c in visible:
+                                    self.assertGreaterEqual(
+                                        c.width(),
+                                        c.sizeHint().width() - 2,
+                                        f"Control clipped at {w}x{h}: {c.objectName()} width={c.width()} hint={c.sizeHint().width()}",
+                                    )
+                                    tl = c.mapTo(win, QPoint(0, 0))
+                                    rects.append(QRect(tl, c.size()))
+                                for i in range(len(rects)):
+                                    for j in range(i + 1, len(rects)):
+                                        self.assertFalse(
+                                            rects[i].intersects(rects[j]),
+                                            f"Overlapping controls at {w}x{h}: {rects[i]} vs {rects[j]}",
+                                        )
+
+                        # Hardware page grid reflows across breakpoints
+                        win.switch_workspace_tab("hardware")
+                        win.resize(780, 500)
+                        app.processEvents()
+                        self.assertGreaterEqual(win.metric_net.y(), win.metric_ram.y())
+                    finally:
+                        win.close()
+                        theme_manager().apply_ui_scale(1400, 820)
 
 
 if __name__ == "__main__":

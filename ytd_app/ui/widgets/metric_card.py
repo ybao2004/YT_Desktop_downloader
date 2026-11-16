@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import icons
-from ...theme import progress_bar_qss, status_color, theme_manager
+from ...theme import density_metrics, progress_bar_qss, status_color, theme_manager
 
 
 class SparklineWidget(QWidget):
@@ -109,9 +109,10 @@ class MetricCard(QFrame):
         self._icon_name = icon_name
         self._status_key = status_key
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 12)
-        layout.setSpacing(6)
+        self._card_layout = QVBoxLayout(self)
+        m = density_metrics(theme_manager().ui_scale)
+        self._card_layout.setContentsMargins(m["card_pad_x"], m["card_pad_y"], m["card_pad_x"], max(8, m["card_pad_y"] - 2))
+        self._card_layout.setSpacing(4 if theme_manager().ui_scale < 0.9 else 6)
 
         top = QHBoxLayout()
         top.setSpacing(6)
@@ -121,28 +122,39 @@ class MetricCard(QFrame):
 
         self.title_label = QLabel(title)
         self.title_label.setObjectName("mutedLabel")
+        self.title_label.setMinimumWidth(0)
         top.addWidget(self.title_label)
         top.addStretch(1)
-        layout.addLayout(top)
+        self._card_layout.addLayout(top)
 
         self.value_label = QLabel("0%")
         self.value_label.setObjectName("metricValue")
-        layout.addWidget(self.value_label)
+        self._card_layout.addWidget(self.value_label)
 
         self.detail_label = QLabel("—")
         self.detail_label.setObjectName("mutedLabel")
-        layout.addWidget(self.detail_label)
+        self.detail_label.setWordWrap(True)
+        self.detail_label.setMinimumWidth(0)
+        self._card_layout.addWidget(self.detail_label)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setTextVisible(False)
-        layout.addWidget(self.progress_bar)
+        self._card_layout.addWidget(self.progress_bar)
 
         self.sparkline = SparklineWidget(status_key=status_key, parent=self)
-        layout.addWidget(self.sparkline)
+        self._card_layout.addWidget(self.sparkline)
 
         self._apply_theme()
         theme_manager().changed.connect(self._apply_theme)
+        theme_manager().density_changed.connect(self._on_density_changed)
+
+    def _on_density_changed(self, scale: float) -> None:
+        m = density_metrics(scale)
+        self._card_layout.setContentsMargins(m["card_pad_x"], m["card_pad_y"], m["card_pad_x"], max(8, m["card_pad_y"] - 2))
+        self._card_layout.setSpacing(4 if scale < 0.9 else 6)
+        self.sparkline.setMinimumHeight(34 if scale < 0.9 else 42)
+        self.sparkline.setMaximumHeight(40 if scale < 0.9 else 48)
 
     def set_metric(self, value_text: str, detail_text: str, percent: float) -> None:
         pct_int = max(0, min(100, round(percent)))

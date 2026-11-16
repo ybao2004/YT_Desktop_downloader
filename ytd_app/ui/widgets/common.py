@@ -6,6 +6,7 @@ from typing import Callable
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
+    QBoxLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -16,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import icons
-from ...theme import theme_manager
+from ...theme import density_metrics, theme_manager
 
 
 def tool_button(
@@ -30,6 +31,7 @@ def tool_button(
     safe_label = label.replace("&", "&&") if "&" in label and "&&" not in label else label
     button = QPushButton(safe_label)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     if callback is not None:
         button.clicked.connect(callback)
     if tooltip:
@@ -97,11 +99,18 @@ class FolderChip(QPushButton):
         self.setObjectName("folderChip")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._full_path = initial_path
+        self._max_len = 36
         self.setProperty("lucideIcon", "folder")
         self.setProperty("lucideSize", 14)
         _apply_button_icon(self)
         theme_manager().changed.connect(lambda _m: _apply_button_icon(self))
         self.set_path(initial_path)
+
+    def set_compact(self, compact: bool) -> None:
+        new_max = 20 if compact else 36
+        if new_max != self._max_len:
+            self._max_len = new_max
+            self.set_path(self._full_path)
 
     def set_path(self, path_str: str) -> None:
         self._full_path = path_str.strip()
@@ -113,8 +122,10 @@ class FolderChip(QPushButton):
             short = parts[-1]
         else:
             short = "Chọn thư mục..."
-        if len(short) > 36:
+        if len(short) > self._max_len:
             short = f"{p.drive}\\…\\{p.name}" if p.drive else f"…/{p.name}"
+        if len(short) > self._max_len + 4:
+            short = short[: self._max_len] + "…"
         self.setText(f" {short}")
         self.setToolTip(f"Thư mục lưu: {self._full_path}\nBấm để chọn thư mục khác")
 
@@ -126,16 +137,26 @@ class SectionCard(QFrame):
         super().__init__(parent)
         self.setObjectName("surfaceCard")
         self.body_layout = QVBoxLayout(self)
-        self.body_layout.setContentsMargins(16, 14, 16, 14)
-        self.body_layout.setSpacing(10)
+        m = density_metrics(theme_manager().ui_scale)
+        self.body_layout.setContentsMargins(m["card_pad_x"], m["card_pad_y"], m["card_pad_x"], m["card_pad_y"])
+        self.body_layout.setSpacing(8 if theme_manager().ui_scale < 0.9 else 10)
         if title:
             hdr = QLabel(title.upper())
             hdr.setObjectName("sectionTitle")
             self.body_layout.addWidget(hdr)
+        theme_manager().density_changed.connect(self._on_density_changed)
+
+    def _on_density_changed(self, scale: float) -> None:
+        try:
+            m = density_metrics(scale)
+            self.body_layout.setContentsMargins(m["card_pad_x"], m["card_pad_y"], m["card_pad_x"], m["card_pad_y"])
+            self.body_layout.setSpacing(8 if scale < 0.9 else 10)
+        except RuntimeError:
+            pass
 
 
 class SettingRow(QWidget):
-    """Horizontal row: title + optional subtitle on the left, control widget(s) on the right."""
+    """Responsive setting row: side-by-side when wide, automatically stacks vertically when narrow."""
 
     def __init__(
         self,
@@ -145,23 +166,36 @@ class SettingRow(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 2, 0, 2)
-        row.setSpacing(16)
+        self._control = control
+        self._row = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._row.setContentsMargins(0, 2, 0, 2)
+        self._row.setSpacing(12)
 
         text_col = QVBoxLayout()
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(2)
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet("font-weight: 500;")
+        title_lbl.setWordWrap(True)
         text_col.addWidget(title_lbl)
         if subtitle:
             sub_lbl = QLabel(subtitle)
             sub_lbl.setObjectName("mutedLabel")
             sub_lbl.setWordWrap(True)
             text_col.addWidget(sub_lbl)
-        row.addLayout(text_col, 1)
+        self._row.addLayout(text_col, 1)
 
         if control is not None:
             control.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-            row.addWidget(control)
+            self._row.addWidget(control)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._control is None:
+            return
+        ctrl_w = max(self._control.minimumSizeHint().width(), self._control.sizeHint().width())
+        should_stack = self.width() > 0 and (self.width() - ctrl_w - 24) < 190
+        target_dir = QBoxLayout.Direction.TopToBottom if should_stack else QBoxLayout.Direction.LeftToRight
+        if self._row.direction() != target_dir:
+            self._row.setDirection(target_dir)
+            self._row.setSpacing(6 if should_stack else 12)

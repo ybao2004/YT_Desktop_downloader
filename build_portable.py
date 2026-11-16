@@ -149,11 +149,11 @@ def build_single_exe(skip_bins: bool = True, bundle_bins: bool = False) -> Path:
         "html_url": f"https://github.com/{DEFAULT_GITHUB_REPO}/releases/tag/v{APP_VERSION}",
         "sha256": sha256_file(out_exe),
         "notes": (
-            f"YouTube Desktop Downloader v{APP_VERSION} (Lightweight Single .EXE - Mức 2):\n"
-            "- Tăng tốc vượt trội thời gian mở Màn hình Khởi động (tối ưu font QSS & giải nén .exe).\n"
-            "- Màn hình Khởi động hiển thị ngay trên Taskbar và không còn luôn nằm trên cùng.\n"
-            "- Tinh gọn Tab Cập nhật trong Cài đặt, bỏ ô cấu hình nguồn cập nhật thủ công.\n"
-            "- Tự động chuyển đổi Codec H.264 (mặc định), H.265/HEVC, AV1, VP9 với tăng tốc GPU."
+            f"YouTube Desktop Downloader v{APP_VERSION} (Responsive High-DPI & Lightweight Single .EXE):\n"
+            "- Giao diện thích ứng thông minh cho màn hình nhỏ và Windows Display Scale cao (150%, 175%, 200%).\n"
+            "- Tự động co tỉ lệ font, padding, lề trang và bố cục FlowBar tự xuống dòng sạch sẽ, triệt tiêu cắt chữ/đè nút.\n"
+            "- Sidebar tự động thu gọn thành thanh icon khi cửa sổ hẹp (< 760px); trang Phần cứng có thanh cuộn & tự xếp lại cột.\n"
+            "- Màn hình Khởi động hiển thị ngay trên Taskbar, tốc độ mở nhanh và không ép luôn nằm trên cùng."
         ),
     }
     manifest_path = DIST_DIR / "version.json"

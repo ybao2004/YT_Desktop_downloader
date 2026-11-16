@@ -47,15 +47,19 @@ class SplashScreen(QWidget):
         app_icon = get_app_icon()
         if not app_icon.isNull():
             self.setWindowIcon(app_icon)
-        self.setFixedSize(480, 270)
-
-        # Center on primary screen
+        # Fit safely inside small / high-DPI screens and center on primary screen
         screen = QApplication.primaryScreen()
+        target_w, target_h = 480, 270
         if screen:
             screen_geo = screen.availableGeometry()
-            x = screen_geo.x() + (screen_geo.width() - self.width()) // 2
-            y = screen_geo.y() + (screen_geo.height() - self.height()) // 2
+            target_w = min(480, max(320, screen_geo.width() - 24))
+            target_h = min(270, max(200, screen_geo.height() - 24))
+            self.setFixedSize(target_w, target_h)
+            x = screen_geo.x() + (screen_geo.width() - target_w) // 2
+            y = screen_geo.y() + (screen_geo.height() - target_h) // 2
             self.move(x, y)
+        else:
+            self.setFixedSize(target_w, target_h)
 
         if mode in ("light", "dark"):
             resolved_mode = mode

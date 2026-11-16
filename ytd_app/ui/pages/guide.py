@@ -11,15 +11,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ...theme import theme_manager
+from ...theme import density_metrics, theme_manager
 
 if TYPE_CHECKING:
     from ..main_window import MainWindow
 
 
-def _guide_html(t: dict[str, str]) -> str:
+def _guide_html(t: dict[str, str], font_px: int = 13) -> str:
     return f"""
-    <div style="font-family: 'Inter', 'Segoe UI', sans-serif; color: {t['text']}; line-height: 1.6; font-size: 13px;">
+    <div style="font-family: 'Inter', 'Segoe UI', sans-serif; color: {t['text']}; line-height: 1.6; font-size: {font_px}px;">
         <h3 style="color: {t['text']}; margin-top: 0; font-weight: 600;">
             Hướng dẫn sử dụng YouTube Desktop Downloader
         </h3>
@@ -106,30 +106,39 @@ def _guide_html(t: dict[str, str]) -> str:
 
 
 def build_guide_page(win: MainWindow) -> QWidget:
+    from ..widgets import FlowBar
+
     page = QWidget()
     page.setObjectName("pageContainer")
     layout = QVBoxLayout(page)
-    layout.setContentsMargins(24, 20, 24, 16)
-    layout.setSpacing(12)
+    m = density_metrics(theme_manager().ui_scale)
+    layout.setContentsMargins(m["page_margin_x"], m["page_margin_top"], m["page_margin_x"], m["page_margin_bot"])
+    layout.setSpacing(max(8, m["page_spacing"] - 2))
 
-    header = QHBoxLayout()
+    header_bar = FlowBar(page, h_spacing=8, v_spacing=4)
     title = QLabel("Hướng dẫn")
     title.setObjectName("pageTitle")
-    header.addWidget(title)
+    header_bar.addWidget(title)
     sub = QLabel("Tài liệu hướng dẫn sử dụng chi tiết")
     sub.setObjectName("mutedLabel")
-    header.addSpacing(8)
-    header.addWidget(sub)
-    header.addStretch(1)
-    layout.addLayout(header)
+    header_bar.addWidget(sub)
+    layout.addWidget(header_bar)
 
     win.guide_browser = QTextBrowser()
     win.guide_browser.setOpenExternalLinks(True)
 
     def _refresh_guide(*_args) -> None:
-        win.guide_browser.setHtml(_guide_html(theme_manager().tokens))
+        dm = density_metrics(theme_manager().ui_scale)
+        win.guide_browser.setHtml(_guide_html(theme_manager().tokens, font_px=dm["font_base"]))
+
+    def _apply_density(scale: float) -> None:
+        dm = density_metrics(scale)
+        layout.setContentsMargins(dm["page_margin_x"], dm["page_margin_top"], dm["page_margin_x"], dm["page_margin_bot"])
+        layout.setSpacing(max(8, dm["page_spacing"] - 2))
+        _refresh_guide()
 
     _refresh_guide()
     theme_manager().changed.connect(_refresh_guide)
+    theme_manager().density_changed.connect(_apply_density)
     layout.addWidget(win.guide_browser, 1)
     return page

@@ -22,7 +22,7 @@ from .common import icon_button
 from .. import icons
 from ...engine import CODEC_LABELS
 from ...models import Job
-from ...theme import progress_bar_qss, status_badge_qss, theme_manager
+from ...theme import density_metrics, progress_bar_qss, status_badge_qss, theme_manager
 
 STATUS_TEXT: dict[str, str] = {
     "queued": "Hàng chờ",
@@ -72,16 +72,17 @@ class JobRow(QFrame):
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(16, 11, 12, 11)
-        outer.setSpacing(14)
+        self._outer_layout = QHBoxLayout(self)
+        m = density_metrics(theme_manager().ui_scale)
+        self._outer_layout.setContentsMargins(12 if theme_manager().ui_scale < 0.96 else 16, 9 if theme_manager().ui_scale < 0.96 else 11, 10 if theme_manager().ui_scale < 0.96 else 12, 9 if theme_manager().ui_scale < 0.96 else 11)
+        self._outer_layout.setSpacing(10 if theme_manager().ui_scale < 0.96 else 14)
 
-        # 1. Left 16:9 thumbnail (96x54)
+        # 1. Left 16:9 thumbnail
         self.thumb_label = QLabel()
         self.thumb_label.setObjectName("cardThumbnail")
         self.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumb_label.setFixedSize(96, 54)
-        outer.addWidget(self.thumb_label)
+        self.thumb_label.setFixedSize(m["thumb_w"], m["thumb_h"])
+        self._outer_layout.addWidget(self.thumb_label)
 
         # 2. Middle column: Title + status dot on row 1, metadata + detail on row 2, thin progress bar on row 3
         mid = QVBoxLayout()
@@ -95,6 +96,7 @@ class JobRow(QFrame):
         self.title_label = QLabel()
         self.title_label.setObjectName("cardTitle")
         self.title_label.setWordWrap(False)
+        self.title_label.setMinimumWidth(60)
         self.title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         top_row.addWidget(self.title_label, 1)
 
@@ -108,6 +110,7 @@ class JobRow(QFrame):
 
         self.spec_badge = QLabel()
         self.spec_badge.setObjectName("mutedLabel")
+        self.spec_badge.setMinimumWidth(0)
         meta_row.addWidget(self.spec_badge)
 
         # Keep codec_badge attribute for compatibility
@@ -121,6 +124,7 @@ class JobRow(QFrame):
 
         self.detail_label = QLabel()
         self.detail_label.setObjectName("mutedLabel")
+        self.detail_label.setMinimumWidth(0)
         self.detail_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         meta_row.addWidget(self.detail_label, 1)
         mid.addLayout(meta_row)
@@ -130,11 +134,11 @@ class JobRow(QFrame):
         self.progress_bar.setTextVisible(False)
         mid.addWidget(self.progress_bar)
 
-        outer.addLayout(mid, 1)
+        self._outer_layout.addLayout(mid, 1)
 
         # 3. Fixed-width right action slot so hovering never shifts layout
         self.actions_slot = QWidget(self)
-        self.actions_slot.setFixedWidth(104)
+        self.actions_slot.setFixedWidth(m["actions_w"])
         slot_layout = QHBoxLayout(self.actions_slot)
         slot_layout.setContentsMargins(0, 0, 0, 0)
         slot_layout.setSpacing(4)
@@ -213,10 +217,11 @@ class JobRow(QFrame):
             act_layout.addWidget(b)
 
         slot_layout.addWidget(self.actions_container)
-        outer.addWidget(self.actions_slot)
+        self._outer_layout.addWidget(self.actions_slot)
 
         self.actions_container.setVisible(False)
         theme_manager().changed.connect(self._on_theme_changed)
+        theme_manager().density_changed.connect(self.apply_density)
         self.update_from_job(job)
 
     # ------------------------------------------------------------------
@@ -268,8 +273,24 @@ class JobRow(QFrame):
         super().resizeEvent(event)
         self._elide_title()
 
+    def apply_density(self, ui_scale: float = 1.0) -> None:
+        m = density_metrics(ui_scale)
+        is_compact = ui_scale < 0.96
+        self._outer_layout.setContentsMargins(
+            12 if is_compact else 16,
+            8 if ui_scale < 0.86 else (9 if is_compact else 11),
+            10 if is_compact else 12,
+            8 if ui_scale < 0.86 else (9 if is_compact else 11),
+        )
+        self._outer_layout.setSpacing(10 if is_compact else 14)
+        self.thumb_label.setFixedSize(m["thumb_w"], m["thumb_h"])
+        self.actions_slot.setFixedWidth(m["actions_w"])
+        self._last_status = ""
+        self.update_from_job(self._job_snapshot)
+
     def _elide_title(self) -> None:
-        avail = max(180, self.width() - 280)
+        reserved = self.thumb_label.width() + self.actions_slot.width() + self.status_badge.sizeHint().width() + 56
+        avail = max(100, self.width() - reserved)
         fm = QFontMetrics(self.title_label.font())
         self.title_label.setText(fm.elidedText(self._raw_title, Qt.TextElideMode.ElideRight, avail))
 
@@ -487,6 +508,7 @@ class JobRow(QFrame):
 
         save_path_str = job.filepath or job.directory or "—"
 
+        font_sm = density_metrics(theme_manager().ui_scale)["font_sm"]
         if status == "downloading":
             parts = [f"{pct:.1f}%"]
             if job.speed and job.speed != "—":
@@ -497,33 +519,33 @@ class JobRow(QFrame):
                 parts.append(job.size)
             parts.append(save_path_str)
             detail = " · ".join(parts)
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['text_secondary']}; font-size: 12px; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['text_secondary']}; font-size: {font_sm}px; }}")
         elif status == "converting":
             parts = [f"{pct:.1f}%", job.speed or "Đang chuyển đổi Codec bằng FFmpeg"]
             if job.eta and job.eta != "—":
                 parts.append(f"còn {job.eta}")
             parts.append(save_path_str)
             detail = " · ".join(parts)
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['purple']}; font-size: 12px; font-weight: 500; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['purple']}; font-size: {font_sm}px; font-weight: 500; }}")
         elif status == "processing":
             detail = f"Đang ghép luồng & metadata · {save_path_str}"
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['purple']}; font-size: 12px; font-weight: 500; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['purple']}; font-size: {font_sm}px; font-weight: 500; }}")
         elif status == "paused":
             detail = f"Tạm dừng ở {pct:.1f}% · {save_path_str}"
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['warning']}; font-size: 12px; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['warning']}; font-size: {font_sm}px; }}")
         elif status == "done":
             detail = save_path_str
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: 12px; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: {font_sm}px; }}")
         elif status == "error":
             err_msg = job.error or "Đã xảy ra lỗi trong quá trình tải."
             detail = f"{err_msg} · {save_path_str}"
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['danger']}; font-size: 12px; font-weight: 500; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['danger']}; font-size: {font_sm}px; font-weight: 500; }}")
         elif status == "cancelled":
             detail = f"Đã hủy · {save_path_str}"
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: 12px; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: {font_sm}px; }}")
         else:
             detail = save_path_str
-            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: 12px; }}")
+            self.detail_label.setStyleSheet(f"QLabel {{ color: {t['muted']}; font-size: {font_sm}px; }}")
 
         full_detail = f"{spec_text} · {detail}"
         if len(detail) > 78:

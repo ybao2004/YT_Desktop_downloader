@@ -4,6 +4,21 @@ Toàn bộ các thay đổi quan trọng của dự án **YouTube Desktop Downlo
 
 ---
 
+## [3.3.0] - 2026-11-17
+
+### Đã thêm & Cải tiến (Added & Changed)
+- **Giao diện Thích ứng Toàn diện cho Màn hình Nhỏ & Scale DPI Cao (150% / 175% / 200%)**:
+  - **Hệ thống Tỉ lệ Mật độ Thích ứng (`resolve_ui_tier` & `density_metrics` trong `theme.py`)**: Tự động chuyển đổi mượt mà giữa 3 mức (`normal 1.0`, `compact 0.90`, `dense 0.82`) theo không gian làm việc logic thực tế, co gọn cỡ chữ, padding nút, khoảng lề trang, thẻ tác vụ và tiêu đề trên màn hình nhỏ / scale 150%–175%+ trong khi giữ nguyên 100% thiết kế chuẩn trên màn hình rộng (100%–125%).
+  - **Thành phần `FlowLayout` / `FlowBar` mới (`ytd_app/ui/widgets/flow_layout.py`)**: Bố cục tự xuống dòng thông minh hỗ trợ nhóm nút căn phải (`trailing`), áp dụng cho hàng cấu hình tải xuống, thanh bộ lọc/thao tác hàng đợi, tùy chọn nâng cao, thanh xem trước, nút cập nhật Cài đặt và các hộp thoại (`MultiLinkDialog`, `CookieVerifyDialog`) — triệt tiêu hoàn toàn hiện tượng cắt chữ hoặc đè control.
+  - **Khóa kích thước tối thiểu cho `SegmentedControl`, `tool_button` và `QComboBox`**: Dùng `SizePolicy.Minimum` và `AdjustToContents` để các nút `Video | Audio`, tab lọc và hộp chọn Codec/Chất lượng luôn hiển thị trọn vẹn nội dung.
+  - **Cửa sổ chính, Sidebar & Thanh Trạng thái Thích ứng**:
+    - Giảm `MainWindow.minimumSize` từ `980×620` xuống `720×480` và tự động giới hạn kích thước khởi tạo theo `screen.availableGeometry()` (tránh tràn xuống Taskbar ở scale 175%).
+    - `Sidebar` tự thu hẹp (`208px` → `184px` → `168px`) và chuyển sang thanh icon gọn (`58px`) khi bề rộng cửa sổ `< 760px`.
+    - Thanh Trạng thái (`Status Bar`) tự động thu gọn `FolderChip` và ẩn bớt chỉ số phụ (`GPU`, `Trống`, `CPU`, `RAM`) khi hẹp, bảo vệ vùng hiển thị thông báo và đường dẫn.
+  - **Trang Phần cứng, Cài đặt & Hướng dẫn Responsive**: Bọc `QScrollArea` và tự xếp lại cột thẻ (`3+2` → `2+2+1` → `1` cột) cho trang Phần cứng; `SettingRow` tự chuyển sang xếp chồng dọc khi hẹp; hộp thoại và `SplashScreen` tự giới hạn kích thước an toàn theo màn hình.
+
+---
+
 ## [3.2.2] - 2026-11-13
 
 ### Đã thêm (Added)

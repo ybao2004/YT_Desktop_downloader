@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from .. import icons
 from ...theme import theme_manager
@@ -18,6 +18,7 @@ class SegmentedControl(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("segmentedFrame")
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(2, 2, 2, 2)
         self._layout.setSpacing(2)
@@ -27,6 +28,7 @@ class SegmentedControl(QFrame):
         self._dots: dict[int, QLabel] = {}
         self._current_index: int = -1
         theme_manager().changed.connect(self._refresh_icons)
+        theme_manager().density_changed.connect(self._on_density_changed)
 
     def addItem(self, label: str, userData: Any = None, icon_name: str = "") -> None:
         idx = len(self._items)
@@ -35,9 +37,11 @@ class SegmentedControl(QFrame):
         btn.setObjectName("segmentButton")
         btn.setCheckable(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         if icon_name:
-            btn.setIcon(icons.icon(icon_name, size=14))
-            btn.setIconSize(QSize(14, 14))
+            ic_sz = 13 if theme_manager().ui_scale < 0.96 else 14
+            btn.setIcon(icons.icon(icon_name, size=ic_sz))
+            btn.setIconSize(QSize(ic_sz, ic_sz))
         btn.clicked.connect(lambda _checked=False, i=idx: self.setCurrentIndex(i))
         self._group.addButton(btn, idx)
         self._layout.addWidget(btn)
@@ -46,6 +50,7 @@ class SegmentedControl(QFrame):
             self._current_index = 0
             btn.setChecked(True)
             self._refresh_icons()
+        self.updateGeometry()
 
     def setItemBadgeDot(self, index: int, visible: bool, tooltip: str = "") -> None:
         if not (0 <= index < len(self._items)):
@@ -100,9 +105,17 @@ class SegmentedControl(QFrame):
         if changed and not self.signalsBlocked():
             self.currentIndexChanged.emit(index)
 
+    def _on_density_changed(self, _scale: float = 1.0) -> None:
+        self._refresh_icons()
+        for _label, _data, btn, _ic in self._items:
+            btn.updateGeometry()
+        self.updateGeometry()
+
     def _refresh_icons(self, *_args) -> None:
         t = theme_manager().tokens
+        ic_sz = 13 if theme_manager().ui_scale < 0.96 else 14
         for idx, (_label, _data, btn, icon_name) in enumerate(self._items):
             if icon_name:
                 col = t["text"] if idx == self._current_index else t["muted"]
-                btn.setIcon(icons.icon(icon_name, color=col, size=14))
+                btn.setIcon(icons.icon(icon_name, color=col, size=ic_sz))
+                btn.setIconSize(QSize(ic_sz, ic_sz))

@@ -1,12 +1,17 @@
-# YouTube Desktop Downloader v3.2.2 — Python / PyQt6 (Minimal UI, Instant Launch & GPU Codec Edition)
+# YouTube Desktop Downloader v3.3 — Python / PyQt6 (Responsive High-DPI, Instant Launch & GPU Codec Edition)
 
-Ứng dụng máy tính hiện đại (phiên bản **v3.2.2**) để tải Video, Audio, Shorts và Playlist YouTube với **giao diện tối giản, chuyên nghiệp (hỗ trợ cả Chế độ Sáng & Tối theo hệ thống Windows)**, **màn hình Splash Screen khởi động nhanh tức thì, hiển thị ngay trên Taskbar và không ép luôn nằm trên cùng**, **độ trễ chuyển cảnh 1 giây hoàn tất mượt mà sang cửa sổ chính**, **ngăn chặn mở nhiều cửa sổ trùng lặp (Single Instance) cấp Kernel Mutex**, **tự động đồng bộ thư mục lưu cho các tác vụ trong Hàng chờ và cho phép đổi thư mục linh hoạt từng tác vụ**, **icon ứng dụng `.ico` độ phân giải cao**, **hàng đợi tải hàng loạt kèm Tự bắt link (Clipboard Monitor), Xác minh Cookie chống Bot & Hoàn tác**, khả năng **tự động chuẩn hóa Codec (H.264 mặc định, H.265/HEVC, AV1, VP9)** tăng tốc bằng phần cứng GPU, **trang Cài đặt phân 3 tab (Chung, Cập nhật, Giới thiệu) và tự động kiểm tra bản cập nhật mới**, **giám sát tài nguyên phần cứng kèm biểu đồ sparkline 60 giây**, **cắt đoạn media**, **nhúng phụ đề/metadata**, cùng **cơ chế đóng gói 1 file `.exe` Portable Mức 2 Siêu nhẹ & cập nhật phiên bản từ xa**.
+Ứng dụng máy tính hiện đại (phiên bản **v3.3.0**) để tải Video, Audio, Shorts và Playlist YouTube với **giao diện tối giản, chuyên nghiệp (hỗ trợ cả Chế độ Sáng & Tối theo hệ thống Windows) và tự động thích ứng mượt mà trên màn hình nhỏ / Windows Scale cao (150%, 175%, 200%)**, **màn hình Splash Screen khởi động nhanh tức thì, hiển thị ngay trên Taskbar và không ép luôn nằm trên cùng**, **độ trễ chuyển cảnh 1 giây hoàn tất mượt mà sang cửa sổ chính**, **ngăn chặn mở nhiều cửa sổ trùng lặp (Single Instance) cấp Kernel Mutex**, **tự động đồng bộ thư mục lưu cho các tác vụ trong Hàng chờ và cho phép đổi thư mục linh hoạt từng tác vụ**, **icon ứng dụng `.ico` độ phân giải cao**, **hàng đợi tải hàng loạt kèm Tự bắt link (Clipboard Monitor), Xác minh Cookie chống Bot & Hoàn tác**, khả năng **tự động chuẩn hóa Codec (H.264 mặc định, H.265/HEVC, AV1, VP9)** tăng tốc bằng phần cứng GPU, **trang Cài đặt phân 3 tab (Chung, Cập nhật, Giới thiệu) và tự động kiểm tra bản cập nhật mới**, **giám sát tài nguyên phần cứng kèm biểu đồ sparkline 60 giây**, **cắt đoạn media**, **nhúng phụ đề/metadata**, cùng **cơ chế đóng gói 1 file `.exe` Portable Mức 2 Siêu nhẹ & cập nhật phiên bản từ xa**.
 
 ---
 
 ## Tính năng nổi bật
 
 1. **Giao diện Tối giản & Chuyên nghiệp (Minimal Design System)**:
+   - **Giao diện thích ứng Màn hình nhỏ & Scale DPI cao (Responsive High-DPI v3.3)**:
+     - Tự động co tỉ lệ font, padding nút, chiều cao control, khoảng lề trang theo 3 mức (`normal 1.0`, `compact 0.90`, `dense 0.82`) khi dùng màn hình laptop nhỏ hoặc Windows Scale 150%–175%+.
+     - Thanh tùy chọn tải xuống, thanh bộ lọc/thao tác hàng đợi và các cụm nút cài đặt sử dụng **`FlowBar` / `FlowLayout`** tự động xuống dòng gọn gàng, bảo toàn kích thước tối thiểu của từng nút/tab/dropdown để không bao giờ cắt chữ hay đè lên nhau.
+     - **`Sidebar` thông minh**: Co gọn theo mật độ hiển thị và tự thu thành thanh icon (`58px`) khi thu hẹp cửa sổ `< 760px`; `MainWindow` hỗ trợ thu nhỏ tới `720×480` và tự động giới hạn kích thước khởi tạo nằm trọn trong vùng làm việc màn hình (không tràn xuống Taskbar).
+     - Trang **Phần cứng** tích hợp thanh cuộn và tự xếp lại số cột thẻ theo độ rộng; `SettingRow` tự chuyển sang xếp chồng dọc khi quá hẹp; **Status Bar** tự ẩn các chỉ số phụ khi cửa sổ nhỏ để giữ rõ đường dẫn lưu và trạng thái tải.
    - **Thanh điều hướng bên trái (Sidebar)**: Thương hiệu xếp chồng `YouTube / Downloader` căn trái, chuyển nhanh giữa 5 không gian: **Tải xuống**, **Phần cứng**, **Nhật ký**, **Hướng dẫn**, và **Cài đặt**.
    - **Chế độ màu Sáng & Tối (Light / Dark / System)**: Xây dựng trên hệ thống Design Tokens trung tính đen/trắng, tự động đồng bộ theo giao diện Windows (bao gồm cả thanh tiêu đề tối DWM trên Windows 10/11) hoặc tùy chọn cố định trong Cài đặt.
    - **Phông chữ Inter & Biểu tượng Lucide SVG**: Đóng gói sẵn phông chữ `Inter` (SIL OFL) và bộ biểu tượng vector `Lucide` (MIT License) sắc nét trên màn hình HiDPI (125% / 150%).
@@ -101,7 +106,7 @@ Sau khi đóng gói, kiểm tra thư mục `dist/`:
 
 ## Chạy Kiểm thử Tự động (Offline Unit & UI Tests)
 
-Bộ kiểm thử gồm 31 test tự động bao quát toàn diện logic phân tích URL, chọn định dạng, chuẩn hóa codec, quản lý hàng đợi, hoàn tác/làm lại, xác minh cookie và đóng gói:
+Bộ kiểm thử gồm 32 test tự động bao quát toàn diện logic phân tích URL, chọn định dạng, chuẩn hóa codec, quản lý hàng đợi, hoàn tác/làm lại, xác minh cookie, giao diện thích ứng High-DPI và đóng gói:
 
 ```powershell
 # Chạy toàn bộ kiểm thử bằng pytest
@@ -126,7 +131,7 @@ python -m compileall -q .
   - `icons.py`: Trình nạp và tô màu động biểu tượng vector `Lucide SVG` có bộ nhớ đệm HiDPI.
   - `win_effects.py`: Tích hợp thanh tiêu đề tối gốc của Windows (DWM API).
   - `main_window.py`: Cửa sổ chính `MainWindow` điều phối hàng đợi, worker và các trang.
-  - `widgets/`: Các thành phần tái sử dụng (`Sidebar`, `JobRow`, `SegmentedControl`, `MetricCard`, `SparklineWidget`, `FolderChip`, `SectionCard`, `SettingRow`).
+  - `widgets/`: Các thành phần tái sử dụng (`Sidebar`, `JobRow`, `SegmentedControl`, `FlowLayout`/`FlowBar`, `MetricCard`, `SparklineWidget`, `FolderChip`, `SectionCard`, `SettingRow`).
   - `pages/`: Các trang không gian làm việc (`downloads.py`, `batch.py`, `hardware.py`, `log.py`, `guide.py`, `settings.py`).
 - `ytd_app/assets/`: Tài nguyên đóng gói kèm ứng dụng:
   - `icons/*.svg`: Bộ biểu tượng Lucide (`LICENSE-lucide.txt` — MIT/ISC License).

@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from .common import FolderChip, SectionCard, SettingRow, icon_button, tool_button
+from .flow_layout import FlowBar, FlowLayout
 from .job_row import STATUS_TEXT, JobRow
 from .metric_card import MetricCard, SparklineWidget
 from .segmented import SegmentedControl
 from .sidebar import Sidebar
 
 __all__ = [
+    "FlowBar",
+    "FlowLayout",
     "FolderChip",
     "JobRow",
     "MetricCard",
